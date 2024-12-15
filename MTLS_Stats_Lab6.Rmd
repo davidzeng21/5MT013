@@ -1,0 +1,244 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(car)
+```
+
+### L3.1 In this exercise you will learn about the false discovery rate (FDR) in a hands-on fashion, using simulation to understand how the FDR is calculated.
+
+Let us suppose that we know the true distribution of the gene expression values (of 10000 different genes) in two populations (patient groups) and that we (repeatedly) sample 30 persons in patient group A and 30 persons in patient group B (and measure values of the 10000 gene expressions in the 60 persons). We will suppose that 9900 of the genes are non-differentially expressed and 100 are differentially expressed. We assume all gene expressions are independent of each other (an unrealistic scenario, but this keeps the exercise simple). Suppose that :
+
+• Genes 1-9900 are distributed as $N(2,0.5)$ in both patient groups.
+
+• Genes 9901-10000 are distributed as $N(1.8,0.5)$ in group A, and $N(2.2,0.5)$ in group B
+
+```{r}
+gA<-matrix(,30,10000) # just initiates a matrix
+gB<-matrix(,30,10000) # just initiates a matrix
+# Run the loop below which assentially randomly selects 30 patients from group A # and 30 from group B. For 9900 genes the expressions are drawn from the same
+# normal distribution for all 60 patients. For 100 genes patients in group A have # gene expressions drawn from a different distribution than patients in group B. # The aim is to identify these 100 genes!
+for (a in 1:30) {
+gA[a,1:9900]<-rnorm(9900,2,0.5)
+gB[a,1:9900]<-rnorm(9900,2,0.5)
+gA[a,9901:10000]<-rnorm(100,1.8,0.5)
+gB[a,9901:10000]<-rnorm(100,2.2,0.5) }
+
+pval<-matrix(,10000,1) # initiates a vector pval for storing 10000 p-values
+
+# run the 10000 t-tests and store p-values in pval:
+for (a in 1:10000) {
+pval[a]<- t.test(gA[,a],gB[,a])$p.value }
+```
+
+-   The simulation allows you to know which hypotheses are truly null and which are truly alternative, so you can see how well your testing procedure works in practice.
+
+-   With these p-values, you could apply an FDR-controlling procedure (like the Benjamini-Hochberg procedure) to decide which genes are called significant at a certain FDR threshold.
+
+-   By comparing the number of significant calls (S) and the number of false positives (F), you can estimate the FDR and confirm the relationship given by:
+
+$$FDR≈\frac{E[F(t)]}{E[S(t)]}$$
+
+-   In practice, since you know the true difference for the last 100 genes, you can also verify the power and the Type I error control.
+
+**Relation to the FDR formula:**
+
+In the given theoretical framework, if we set $\pi_0 = 1$ (assume all genes could have been null), we can estimate the FDR at a threshold $t$ using the equation:
+
+$$\widehat{\operatorname{FDR}}(t) \approx \frac{\pi_{0} m t}{\#\left(p_{i} \leq t\right)}$$
+
+Since $\pi_0$ is taken as 1 and $m=10000$, once we pick a threshold $t$ for the p-values (for example, $t=0.1$), we can count how many p-values are below that threshold, and plug these into the equation to estimate the FDR.
+
+This simulation will allow you to compare the estimated FDR using this approach against the “true” FDR you can compute since you know which genes are actually differentially expressed.
+
+Now, we can obtain the adjusted p-values using the FDR approach using the command `p.adjust`. Run the following code:
+
+```{r}
+which(p.adjust(pval,method="fdr")<0.10)
+
+```
+
+Note that there is package/wrapper based on `p.adjust`, called `fuzzySim`, that can alternatively be used. If you want to explore this, install the package `fuzzySim` and run the following code:
+
+```{r}
+library(fuzzySim)
+pppp <- data.frame(var = c(1:10000), pval = pval)
+FDR(pvalues=pppp, q=0.10)
+```
+
+How many genes are selected at the threshold that controls $FDR$ at 0.10? How accurate was the estimated $FDR$ of 0.10? Look at one or two of the q-values and check that you know how they were calculated.
+
+There are 14 genes selected at the threshold that controls $FDR$ at 0.10. The estimated $FDR$ of 0.10 was accurate. The q-values were calculated as the adjusted p-values using the FDR approach.
+
+How many genes would have been selected using the Bonferroni adjustment method, controlling the FWER at 0.10?
+
+Using the Bonferroni correction to control the family-wise error rate (FWER) at 0.10 is much more stringent than controlling the FDR at 0.10. The Bonferroni-adjusted significance threshold would be:
+
+$$\alpha_{\text {Bonferroni }}=\frac{0.10}{10,000}=1 \times 10^{-5}$$
+
+There are 7 genes selected at the threshold that controls the FWER at 0.10.
+
+If we run the above code repeatedly, we can show that the actual FDR is quite variable when we choose a specific level at which to control FDR for, but that in expectation (i.e. on average) it works. When we do this for 100 repetitions, we get the following distributions for the actual FDR, the number of genes selected to control FDR=0.10, and the number of genes selected by the Bonferroni method (to control FWER=0.10). Check that you understand what each plot is showing.
+
+The three histograms illustrate what happens when we repeatedly simulate the scenario and apply the different testing procedures 100 times. Each run involves generating data, applying the chosen significance criterion, and recording the outcomes. The histograms show the distribution of these outcomes over the 100 repetitions.
+
+1.  **Histogram of `obsFDR`**:
+
+    -   **What it shows:** The actual (observed) false discovery rate (FDR) calculated in each of the 100 simulated experiments, after applying a procedure designed to control the FDR at 0.10.
+
+    -   **Interpretation:**\
+        Even though the procedure aims to control FDR at 0.10 on average, the actual FDR in any single experiment can vary. You might see that most simulations produce an observed FDR close to 0.10, but some experiments give lower or higher FDR values. This variability reflects the inherent randomness in sampling and hypothesis testing.
+
+2.  **Histogram of `nsel` (number of genes selected under FDR control)**:
+
+    -   **What it shows:** The distribution of how many genes are declared significant (selected) in each run when controlling the FDR at 0.10.
+
+    -   **Interpretation:**\
+        Some experiments will find more significant genes and some fewer, depending on the random variation in the data. On average, this gives you a sense of how “aggressive” or “lenient” the FDR-based method is at an FDR level of 0.10. A moderate number of genes might typically be selected, but the exact count fluctuates from run to run.
+
+3.  **Histogram of `nselbon` (number of genes selected under Bonferroni correction)**:
+
+    -   **What it shows:** The distribution of the number of significant genes identified using a Bonferroni correction to control the family-wise error rate (FWER) at 0.10, across the 100 runs.
+
+    -   **Interpretation:**\
+        The Bonferroni method is much more conservative than the FDR approach. The histogram likely shows that the number of genes selected is generally quite small, and this number also varies from run to run, but remains lower on average than the number selected using the FDR approach.
+
+### L3.2 You can now carry out an analysis of the associations of the gene expression levels with the mutation status of FLT3, using all 56124 genes in the rnaNorm data.
+
+```{r}
+# Load the data
+load("E:/Xuexi/5MT013/5MT013/BeatAML2_clean.RData")
+```
+
+```{r}
+pv<-matrix(0,nrow(rnaNorm),1) # initiates a vector to store p-values in
+# carry out 56124 t-tests:
+for (a in 1:nrow(rnaNorm)) {
+pv[a]<-t.test(rnaNorm[a,]~clinical_data$'FLT3-ITD')$p.value }
+hist(pv) # creates a histogram of the p-values
+pppp<-data.frame(var=c(1:nrow(rnaNorm)),pval=pv) # store p-values in a data frame
+# then run the FDR analysis:
+library(fuzzySim)
+FDR(pvalues=pppp,q=0.05)
+```
+
+**What does controlling the FDR at α = 0.05 mean?**\
+Controlling the False Discovery Rate (FDR) at 5% (q = 0.05) means that, on average, among all the genes you declare significant, you expect that about 5% of them are false positives. Unlike controlling the Family-Wise Error Rate (FWER), which attempts to ensure that the probability of having any false positives is below 0.05, controlling the FDR is a less stringent criterion. It allows some false positives, but keeps their proportion under control.
+
+**What level would you use?**\
+The choice of the FDR threshold (often called q-value threshold) depends on the scientific context and your tolerance for false positives. Common values are 0.05 or 0.10. Using q = 0.05 is a conventional choice, striking a balance between being too conservative (risking missing many truly differentially expressed genes) and being too lenient (risking including too many false positives).
+
+**Discussion of the results:**\
+In large-scale genomics data, it’s quite common to find thousands of genes differentially expressed if the phenotype (e.g., mutation status) dramatically affects gene expression patterns. Controlling the FDR at 0.05 allows for many discoveries while keeping the expected proportion of false discoveries relatively low. Thus, the result of 9,322 selected genes might not be surprising if FLT3-ITD has a wide-ranging impact on the transcriptome or if the sample size is large enough to detect subtle but consistent differences across numerous genes.
+
+### L3.3 Look at the data that was used in the lecture for the permutation test (T-cells in mice) - attached as ExamplePermTest.xlsx in Canvas. Check that you understand how the p-value of 0.03 was calculated.
+
+**Step-by-Step Explanation of the Permutation (Randomization) Test:**
+
+1.  **Problem Setup:** Suppose we have two groups of observations and we want to test whether there is a significant difference between them. Traditionally, one might consider a t-test, but perhaps the assumptions required for a t-test are not met, or the sample size is too small. Instead, we consider a permutation (randomization) test.
+
+2.  **Null Hypothesis (Exchangeability):** The null hypothesis $H_0$ is that the grouping of observations into two groups does not matter. In other words, all observations come from the same "population," and the current division into groups is just one arbitrary way to split the data. Under $H_0$, any random rearrangement (permutation) of the data into two groups of the same sizes should be equally likely.
+
+3.  **Test Statistic:** We need a test statistic that measures the difference between groups. A common choice is the difference in means. For the observed data, this is: $$
+    t_{\text{obs}} = \bar{x}_1 - \bar{x}_2
+    $$
+
+    Here, $\bar{x}_1$ is the mean of group 1 and $\bar{x}_2$ is the mean of group 2. This gives a single observed test statistic from the actual grouping.
+
+4.  **Permutation Procedure:** Under $H_0$ (exchangeability), the observed grouping is no more special than any other possible grouping of the pooled data into two sets of the same sizes. To assess how "extreme" our observed test statistic is under this assumption, we:
+
+    1.  Pool all the data together into one combined sample.
+    2.  Enumerate (or randomly sample, if the number is very large) all possible ways to split the combined data into two groups of the same sizes as the original groups. The total number of such splits is $m$.
+    3.  For each such split, compute a test statistic: $$
+        t_i = \bar{x}_{1,i} - \bar{x}_{2,i}
+        $$ where $\bar{x}_{1,i}$ and $\bar{x}_{2,i}$ are the means of the two new groups formed in permutation $i$.
+
+5.  **Determining the p-value:** Once we have all possible test statistics $t_1, t_2, \dots, t_m$, we compare them to the observed statistic $t_{\text{obs}}$. We count how many are "as extreme or more extreme" than $t_{\text{obs}}$ in the direction of interest. For a two-sided test, we consider the absolute value: $$
+    k = \#\{ i : |t_i| \ge |t_{\text{obs}}| \}
+    $$ The p-value is then the proportion of such permutations: $$
+    p = \frac{k + 1}{m + 1}
+    $$ (The "+1" in numerator and denominator is sometimes used as a bias correction; the essential idea is $p \approx k/m$.)
+
+    If $p$ is small (less than the chosen significance level $\alpha$), we reject $H_0$ and conclude that the observed grouping does show a significant difference.
+
+------------------------------------------------------------------------
+
+#### **Example: T-Cells in Mice**
+
+-   **Data Context:**\
+    We have data on percentages of T-cells that are CD4+ from the liver of mice. There are two groups: a PZLF-ko group (5 mice) and a wt (wild-type) group (5 mice).
+
+-   **Observed Test Statistic:** $$
+    t_{\text{obs}} = \bar{x}_{\text{PZLF-ko}} - \bar{x}_{\text{wt}} = 52.0 - 70.8 = -18.8.
+    $$
+
+-   **Number of Possible Splits:** With $n_1 = 5$ and $n_2 = 5$, and a total of $10$ mice, the number of ways to choose which 5 mice go into one group (and the rest into the other) is: $$
+    m = \binom{10}{5} = 252.
+    $$
+
+-   **Permutation Results:** After enumerating all 252 permutations, we find that there are $k = 8$ permutations that have a test statistic (in absolute value) greater than or equal to 18.8: $$
+    |t_i| \ge 18.8.
+    $$
+
+-   **p-value:** $$
+    p = \frac{k}{m} = \frac{8}{252} \approx 0.0317.
+    $$
+
+    Since $p \approx 0.03 < \alpha = 0.05$, we reject $H_0$. This suggests that the observed difference in group means is unlikely to be due to chance and is statistically significant at the 5% level.
+
+------------------------------------------------------------------------
+
+#### **Conclusion:**
+
+The permutation test provides a flexible, assumption-light method to test for differences between two groups. By relying on the principle of exchangeability and enumerating (or sampling) all possible groupings, we gain a valid and often robust p-value. In this example, the conclusion is that the difference observed is statistically significant.
+
+### L3.4 Return to the BeatAML2 data and, like in lab 2 (L2.4), analyse data on drug response (categorised here as below/above the median AUC value) and FLT3 mutation status.
+
+This time consider a different drug, Perhexiline Maleate, that is less commonly used. Run a two sample test of proportions, as well as Fisher’s exact test.
+
+```{r}
+# read in the IDs of samples taking the specific drug:
+partic<-drug_data$sample[drug_data$inhibitor=="Perhexiline maleate"]
+# store their AUC values:
+auc4partic<-drug_data$auc[which(drug_data$inhibitor=="Perhexiline maleate")]
+# store the FLT3 mutation status for the individuals - in the vector mutstatus:
+mutstatus<-matrix(,length(partic),1)
+for (a in 1:length(partic)) {
+mutstatus[a]<-clinical_data$'FLT3-ITD'[clinical_data$sample==partic[a]] }
+# categorise the AUC values as 0/1 (below/above median):
+auct<-cut(auc4partic,breaks=c(-Inf,median(auc4partic),+Inf),labels=c("0","1"))
+table(mutstatus,auct) # cross-tabulate mutation status and AUC value
+
+```
+
+```{r}
+prop.test(x=c(8,3),n=c(14,9)) # two-sample test of proportions
+```
+
+```{r}
+# first store data as a matrix and then run 2-tailed and 1-tailed Fisher's test:
+Per_Mal<-matrix(c(6,6,8,3),nrow = 2,dimnames=list(mutstatus=c("Neg", "Pos"),auct=c("0","1")))
+fisher.test(Per_Mal) # 2 tailed test
+```
+
+```{r}
+fisher.test(Per_Mal,alternative="l") # 1 tailed test
+```
+
+Which test do you think is most reliable? You can read about Fisher’s exact test (a permutation test) in Section 17.3 of the Kirkwood and Sterne book. We describe how it works for this data in the solution to this lab. When reading the solution, check that you understand which tables contribute to the p-value of the 1-tailed Fisher’s exact test.
+
+#### **Conclusion:**
+
+1.  **Both the two-sample test of proportions and Fisher's exact tests fail to detect a significant association between FLT3 mutation status and AUC category for Perhexiline Maleate.**
+
+    -   The **two-sample test of proportions** may be unreliable due to small sample size, as indicated by the warning.
+
+    -   Fisher's exact test is more appropriate in this context because it is based on the exact hypergeometric distribution and does not rely on approximation.
+
+2.  **Odds Ratio Interpretation:**
+
+    -   The odds ratio of 0.3918 suggests that the Positive group is less likely to have an "AUC = 1" compared to the Negative group, but this difference is not statistically significant.
+
+3.  **Most Reliable Test:** Fisher's exact test (two-tailed or one-tailed, depending on your hypothesis) is the most reliable test for small sample sizes like this. The two-tailed test is generally preferred unless you have a strong directional hypothesis.

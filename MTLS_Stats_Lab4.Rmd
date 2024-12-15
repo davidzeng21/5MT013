@@ -1,0 +1,237 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+### L1.1 An investigator notices 30 cases of chronic bronchitis in the first year of life of children of 200 smoking parents, compared with a national incidence rate of 5%. To answer the question “Is this difference “real” or could it just be due to chance (random variation)?”, carry out a 1 sample test of a proportion.
+
+```{r}
+# To carry out a 1 sample test of proportion that is exactly the same test as
+# that described in the lecture, start R and type:
+prop.test(x = 30, n = 200, p = 0.05, correct = FALSE)
+```
+
+1.  What are the null and alternative hypotheses?
+
+    H0: probability of having chronic bronchitis in 1st year of life is 0.05 (p=0.05)
+
+    H1: p not equal to 0.05
+
+2.  Np(1-p)=200´0.05´0.95= 9.5 (\>5) so normal approximation is OK to use.
+
+3.  
+
+If the above study had instead observed 3 cases of bronchitis among children of 20 parents, and you wanted to test the same null hypothesis, it would not be wise to use the test described above. Check that you understand why. We can instead use an exact test - a binomial test. Type:
+
+```{r}
+binom.test(x = 3, n = 20, p = 0.05)
+```
+
+Use the exact binomial test (since np(1-p)=0.95\<5).
+
+```{r}
+1-pbinom(2,20,0.05)
+```
+
+6.  Can you represent the p-value of the binomial test in a diagram?
+
+```{r}
+# 6. Can you represent the p-value of the binomial test in a diagram?
+# Parameters
+n <- 20
+p <- 0.05
+
+# Compute probabilities for x = 0 to 20
+x <- 0:n
+probs <- dbinom(x, size = n, prob = p)
+
+# Compute the sum of probabilities from x=3 to x=20
+tail_sum <- sum(probs[x >= 3])  # same as sum(probs[4:21]) since indexing starts at 1
+
+# Create a basic barplot of the PMF
+barplot_heights <- barplot(probs, 
+                           names.arg = x, 
+                           ylim = c(0, max(probs) * 1.4),  # extra space at top for annotations
+                           xlab = "x", 
+                           ylab = "p(x)", 
+                           main = paste("PMF for Binomial (n=", n, ", p=", p, ")", sep=""),
+                           col = "gray")
+
+# barplot() returns the midpoints of the bars on the x-axis
+# We can use these to place annotations
+x_positions <- barplot_heights
+
+# Identify the portion to highlight: from x=3 to x=20
+# Find corresponding bar positions
+highlight_indices <- which(x >= 3)
+highlight_x_positions <- x_positions[highlight_indices]
+
+# We can add a bracket-like annotation to indicate the sum of probabilities for x=3 to 20
+# Let's draw a line segment below those bars and place a text label
+y_pos_line <- -0.005  # a bit below the x-axis
+segments(x0 = highlight_x_positions[1], 
+         y0 = y_pos_line, 
+         x1 = highlight_x_positions[length(highlight_x_positions)], 
+         y1 = y_pos_line, 
+         lwd = 2, col = "black")
+
+# Add a vertical line and a text label indicating the sum
+# For a "sum bracket" look, we can draw a vertical line at the start and add text above it:
+segments(x0 = highlight_x_positions[1], y0 = y_pos_line, x1 = highlight_x_positions[1], y1 = max(probs)*0.1)
+text(mean(highlight_x_positions), max(probs)*0.15, 
+     paste("Sum of probabilities (for x=3 to 20) =", round(tail_sum, 4)), 
+     cex = 0.9)
+
+# (Optional) Add an arrow or more fancy annotation:
+arrows(x0 = mean(highlight_x_positions), 
+       y0 = max(probs)*0.12, 
+       x1 = mean(highlight_x_positions), 
+       y1 = max(probs)*0.02, 
+       length = 0.1, angle = 20)
+
+# Note:
+# - You can adjust the position of texts, arrows, and line segments to achieve a similar look.
+# - The code above uses absolute coordinates and may require fine-tuning based on your preferences.
+
+```
+
+### L1.2 Discuss with your neighbour the accuracy of the statement “the p-value provides the probability that the null hyptohesis is true”.
+
+### L1.3 For this question you should load the course data set (the BeatAML2 cohort). We will use a 1-sample t-test to test the hypothesis that the normalised expression level of gene JOSD1 among patients with a positive mutation status for FLT3, is 7.0 (Let’s suppose we know that 7.0 is the value in patients without FLT3 mutations and we want to compare the mean of patients with mutations to this value of 7.0).
+
+```{r}
+load("E:/Xuexi/5MT013/5MT013/BeatAML2_clean.RData")
+
+# select the gene JOSD1, which is represented in row 2222 of the rnaNorm data.
+JOSD1<-rnaNorm[2222,]
+#Then select a subset of FLT3-ITD mutation carriers.
+FLT3<-clinical_data$'FLT3-ITD'
+JOSD1_FLT3 <- JOSD1[FLT3=="positive"]
+# visualise the distribution of the gene expressions in the group of individuals
+# with FLT3 mutations, by creating a histogram
+
+hist(JOSD1_FLT3)
+```
+
+```{r}
+# now carry out the test at significance level 0.05.
+# t-test with H_0: mu = 7
+t.test(JOSD1_FLT3,mu=7)
+```
+```{r}
+# To examine an assumption of the test, that the measurements come from a normal
+# distribution, first install the package Car and then load it.
+install.packages("car")
+library(car)
+# Then produce a qq plot of the data
+qqPlot(JOSD1_FLT3)
+```
+
+1. How do you interpret the p-value of the test?
+It is the probability of obtaining a sample mean that is this far away, or even further
+away from 7 (absolute difference of 0.1229 or larger) – under the null hypothesis that
+the population mean is 7.
+
+2. What are the assumptions of the t-test?
+That values of expression levels are normally distributed and that measurements are
+independent.
+
+3. Interpret the qq plot!
+The qq plot plots data against quantiles from the normal distribu5on. Confidence
+bands are obtained by bootstrapping (you will learn more about bootstrapping later).
+There is some suggestion of non-normality, but this is not strong evidence and the t-test
+is rather robust to small deviations. The sample is in any case large so the test is
+probably fine (one can use normal distribution/central limit theorem arguments
+when samples are large).
+
+4. If the sample size had been smaller, e.g. 20 instead of 106, how would this have influenced
+your consideration of the assumptions?
+It is not so easy to say – one probably wouldn’t have any good reason to believe data
+was non-normal: after all the gene expression data is normalized!
+
+5. For the 2 tailed t-test that you just carried out, obtain the test statistic value yourself, using R only as a calculator, by first calculating the mean and standard deviation of the expression levels, and the sample size (106), and combining the values appropriately.
+
+```{r}
+(6.877066-7)/(sd(JOSD1_FLT3)/(106^0.5))
+```
+Use the command qt in R to obtain the two critical values for carrying the test out at a
+significance level of α = 0.05 (the critical values are the points on the distribution of the test statistic under the null hypothesis that define the set of values that call for rejecting the null hypothesis).
+
+```{r}
+qt(0.025,105)
+qt(0.975,105)
+```
+What would the critical values be if you instead used α = 0.01?
+```{r}
+qt(0.005,105)
+qt(0.995,105)
+```
+6. What do you get if you type in the following?
+
+```{r}
+pt(-1.7558,105)
+```
+Can you relate this to the p-value of the test?
+
+You obtain 0.04101931 which is the area under the probability density func5on of
+the t-distribu5on with 105 degrees of freedom that is to the led of -1.7558. So twice
+this number is the p-value for the two-tailed test.
+
+### L1.4 For many of the standard hypothesis tests, statistical power can be evaluated analytically.
+Approximate values can also be estimated empirically by simulation. Use the code below to find
+the power of a one sample 2-tailed t-test based on a sample of size 30, when in the population
+measurements follow a N(6.8,0.7) distribution and we test the null hypothesis that the population mean is equal to 7.
+
+
+```{r}
+p <- replicate(10000, {
+  y <- rnorm(30, 6.8, 0.7)
+  t.test(y, mu = 7)$p.value
+})
+# what proportion of the generated p-values are < 0.05?
+mean(p < 0.05)
+```
+1. What is your estimate of power to detect that the mean is not equal to 7?
+When we run this code, we can see that approximately 33% of the 5me we reject the
+null hypothesis (i.e. we detect that the mean is not equal to 0.7). so es5mate of
+power is 0.33.
+
+2. With your neighbour, check that you understand what is meant by statistical power.
+Statistical power is the probability that a test will reject the null hypothesis when the
+null hypothesis is false. It is the probability of detecting an effect, given that there is
+an effect to detect.
+
+3. Optional: Can you represent power in a diagram?
+```{r}
+x<-matrix(,100000,1)
+for (a in 1:100000) {
+z<-rnorm(30,6.8,0.7)
+x[a]<-(mean(z)-7)/(sd(z)/(30^0.5)) }
+length(which(abs(x)>qt(0.975,29)))/length(x)
+```
+```{r}
+x<-rt(100000,29,ncp=(-0.2/(0.7/(30^0.5))))
+length(which(abs(x)>qt(0.975,29)))/length(x)
+```
+4. In what way would the power be different if the standard deviation in the population was 0.9,
+instead of 0.7?
+The power would be lower, because the standard deviation is larger, so the signal is
+weaker.
+
+
+### L1.5 Look at each of the headings of the sub-sections of Section 3 in the article by Mayo and Hand.
+Think about these and discuss with your neighbour. The headings are copied below:
+1. Statistical significance is erroneously taken to mean scientifically important
+2. The p-value does not measure the size of a population effect
+3. A statistically insignificant result (a non-small p-value) is not evidence for H0
+4. P-values are uninterpretable if there has been p-hacking, data-dredging or a variety of biasing
+selection effects
+5. A p-value can be invalidated by violations of the underlying model
+
+
+
+
+
+
+
+

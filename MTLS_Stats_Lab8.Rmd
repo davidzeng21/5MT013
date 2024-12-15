@@ -1,0 +1,117 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+# load useful packages
+library(dplyr)
+library(tibble)
+library(ggplot2)
+library(broom)
+library(ggfortify)
+library(lmtest)
+```
+
+```{r}
+# load the data
+load("E:/Xuexi/5MT013/5MT013/BeatAML2_clean.RData")
+
+# extract just the two genes we are interested in
+genes <- c("ENSG00000100221", "ENSG00000000457")
+labgenes <- as_tibble(t(rnaNorm[genes,]), rownames = "sample") |> 
+    rename(JOSD1 = ENSG00000100221, SCYL3 = ENSG00000000457)
+
+# add patient information (sex)
+labdata <- labgenes |> 
+    left_join(clinical_data |> select(sample, sex = consensus_sex), by = "sample")
+```
+
+### 1. First we will assess sex as a potential confounder. When making this assessment it is better to compare the means (first for JOSD1, then for SCYL3) in each group by sex, rather than performing a formal test. A test could give a low p-value even for a very weak association (if the sample size is large); conversely, a test may fail to detect a strong association fo the sample size is small. Confounding is not affected by the size of the sample.
+
+```{r}
+# overall means
+labdata |> 
+    summarize(across(JOSD1:SCYL3, list("mean" = mean)))
+# means by sex
+labdata |> 
+    group_by(sex) |> 
+    summarize(across(JOSD1:SCYL3, list("mean" = mean)))
+```
+
+```{r}
+# visualize
+ggplot(labdata) + geom_boxplot(aes(sex, JOSD1))
+ggplot(labdata) + geom_boxplot(aes(sex, SCYL3))
+```
+a) Is there an association between sex and JOSD1 (the outcome)?
+Yes.
+
+b) Is there an association between sex and SCYL3 (the exposure of interest)?
+Yes.
+
+c) Based on your answers to (a) and (b), do you expect sex to confound the association between JOSD1 and SCYL3?
+Yes.
+
+### 2. Fit a linear regression model for JOSD1 including just SCYL3 as a predictor. Note the effect size and its standard error and associated p-value.
+
+```{r}
+summary(mod1 <- lm(JOSD1 ~ SCYL3, data = labdata))
+
+```
+
+### 3. Now add sex to the model (as a binary predictor variable). Think about the following quantities: have they changed, and if so, have the decreased or increased?
+a) The estimate of the effect of SYCL3 on JOSD1
+The estimate of the effect of SCYL3 on JOSD1 has increased from -0.76081 to -0.76349.
+b) The p-value for SCYL3
+Shouldn't change much. cannot tell.
+c) The standard error for SCYL3
+The standard error for SCYL3 has not changed much from 0.05377 to 0.05376.
+d) The value of R2 for the model
+The value of R2 for the model has increased from 0.3111 to 0.3123.
+e) Could you have predicted any of these changes before running the model?
+Yes, the estimate of the effect of SCYL3 on JOSD1 should increase.
+f) For each of these values, do you think it is better to look at the absolute change or the relative change?
+The absolute change is more informative.
+
+
+```{r}
+summary(mod2 <- lm(JOSD1 ~ SCYL3 + sex, data = labdata))
+```
+### 4. Create a new variable containing the residuals form the model containing both SYCL3 and sex.
+a) Do the residuals follow a Normal distribution? Produce a histogram and a QQ plot to help assess this.
+b) Plot the residuals (y-axis) against the SCYL3 (x-axis). Do you think SCYL3 is correctly specified in the model?
+
+```{r}
+# residuals
+modfit <- augment(mod2, labdata)
+
+ggplot(modfit) + geom_histogram(aes(.resid), bins = 30)
+ggplot(modfit, aes(sample = .resid)) + geom_qq() + geom_qq_line()
+
+ggplot(modfit) + geom_point(aes(SCYL3, .resid))
+
+autoplot(mod2) # or ggfortify
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
