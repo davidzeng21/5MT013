@@ -1,8 +1,8 @@
 ---
-title: "R Notebook"
+title: "Lab 8: Multivariable linear regression & confounding"
 output: html_notebook
 ---
-
+## Part A: Beat AML2 data
 ```{r}
 # load useful packages
 library(dplyr)
@@ -15,7 +15,7 @@ library(lmtest)
 
 ```{r}
 # load the data
-load("E:/Xuexi/5MT013/5MT013/BeatAML2_clean.RData")
+load("BeatAML2_clean.RData")
 
 # extract just the two genes we are interested in
 genes <- c("ENSG00000100221", "ENSG00000000457")
@@ -80,7 +80,9 @@ summary(mod2 <- lm(JOSD1 ~ SCYL3 + sex, data = labdata))
 ```
 ### 4. Create a new variable containing the residuals form the model containing both SYCL3 and sex.
 a) Do the residuals follow a Normal distribution? Produce a histogram and a QQ plot to help assess this.
+Yes.
 b) Plot the residuals (y-axis) against the SCYL3 (x-axis). Do you think SCYL3 is correctly specified in the model?
+Yes.
 
 ```{r}
 # residuals
@@ -94,16 +96,128 @@ ggplot(modfit) + geom_point(aes(SCYL3, .resid))
 autoplot(mod2) # or ggfortify
 ```
 
+## Part B: Simulated datasets
+
+### 5. Open the dataset “Lab08_Q5_data.txt”. The data consist of three variables: a continuous exposure X, a binary variable sex (a potential confounder), and a countinuous outcome Y.
+
+```{r}
+# load the data
+sim1 <- read.table("Lab08_Q5_data-1.txt", header = TRUE)
+
+```
+
+
+a) Is there a crude association (ie ignoring sex) between X and Y? What is the regression coefficient for the strength of this association? And the p-value for this association? What would you conclude about the association between X and Y?
+
+```{r}
+# association
+summary(mod3 <- lm(Y ~ X, data = sim1))
+```
+There is a crude association between X and Y. The regression coefficient is 2.6425 and the p-value is 0.0219. We would conclude that there is an association between X and Y.
+
+b) Look at the assocation between (i) sex and X, and (ii) sex and Y.
+Do you think it is possible for sex to confound the X-Y association?
+Yes.
+```{r}
+# overall means
+sim1 |> 
+    summarize(across(X:Y, list("mean" = mean)))
+# means by sex
+sim1 |> 
+    group_by(sex) |> 
+    summarize(across(X:Y, list("mean" = mean)))
+# visualize
+ggplot(sim1) + geom_bar(aes(factor(sex), fill = factor(X)))
+ggplot(sim1) + geom_boxplot(aes(factor(sex), Y))
+```
+
+c) Include sex in the linear regression model. Which estimates have changed? How have your conclusions altered?
+The estimate of the effect of X on Y has changed from 2.6425 to 2.0481. The p-value has changed from 0.0219 to 0.106. Our conclusions have altered. There is no longer an association between X and Y.
+```{r}
+summary(mod4 <- lm(Y ~ X + sex, data = sim1))
+```
+
+ADVANCED: 
+d) Change one of the values of sex to “missing” and re-fit the model. How does the model change? Is this observation included or excluded from the analysis?
+
+```{r}
+# change one
+sim1$sex[1] <- NA
+summary(mod5 <- lm(Y ~ X + sex, data = sim1))
+```
+The regression coefficient of X increase and the p-value decrease.
+The observation is excluded from the analysis.
 
 
 
+### 6. Open the dataset “Lab08_Q6_data.txt”. The data consist of three variables: a binary exposure X, a three-level variable Z (a potential confounder), and a countinuous outcome Y.
+
+```{r}
+# load the data
+sim2 <- read.table("Lab08_Q6_data-1.txt", header = TRUE,
+                   colClasses = c("numeric", "numeric", "factor"))
+
+```
+
+
+a) Investigate the crude association between X and Y. What do you conclude?
+
+```{r}
+summary(mod6 <- lm(Y ~ X, data = sim2))
+```
+There is a crude association between X and Y. The regression coefficient is 0.5930 and the p-value is 0.00988. We would conclude that there is an association between X and Y.
+
+
+b) Investigate the association between (i) Z and X and (ii) Z and Y. Do you think Z could be a confounder?
+Yes.
+```{r}
+summary(lm(X ~ as.numeric(Z), data = sim2))
+summary(lm(Y ~ as.numeric(Z), data = sim2))
+
+ggplot(sim2) + geom_boxplot(aes(Z, X))
+ggplot(sim2) + geom_boxplot(aes(Z, Y))
+```
 
 
 
+c) When you have a categorical variable with more than two levels, you have to decide whether to include it in a model as a linear term (so that the effect of jumping from level 1->2 is the same as jumping from level 2->3). In your research you will use knowledge of the variable to help you decide which is more appropriate, but looking only at the data here, which do you think is more likely? Does Z seem to be acting in a linear way (as Z increases, X increases/decreases, and as Z increases Y increases/decreases)? Or is it acting in a non linear way, so that X (or Y) goes up and then down?
+
+It seems that Z is acting in a non-linear way. As Z increases, X decreases and then increases. 
 
 
+d) Fit a model including X and Z as a linear variable. Does the inclusion of Z change the estimate for the effect of X on Y?
+
+Yes. the estimate for the effect of X on Y has changed from 0.5930 to 0.4980. The p-value has changed from 0.00988 to 2.37e-05.
+
+```{r}
+summary(mod7 <- lm(Y ~ X + as.numeric(Z), data = sim2))
+```
+
+e) Fit the model with Z as a categorical variable. How do the estimates for the effect of X change compared to the model in (d)? Perform a global test to see if there is evidence for the effect of X on Y (after adjusting for Z).
+It decreases from 0.4980 to 0.03896.
+The global test is significant and it shows that there is evidence for the effect of X on Y.
+
+```{r}
+# Z as a categorical covariate
+summary(mod6 <- lm(Y ~ X + Z, data = sim2))
+tidy(drop1(mod6, scope = ~ Z, test = "F"))
+```
 
 
+f) Use a likelihood ratio test to compare the model which includes Z as a categorical variable and the model which includes Z as a linear variable (include X in both models). What do you conclude?
+
+```{r}
+lmtest::lrtest(mod7, mod6)
+```
+The likelihood ratio test is significant and it shows that the model which includes Z as a categorical variable is better than the model which includes Z as a linear variable.
+
+
+g) Include (or not) Z in your model in the way you think is most appropriate. Write a short paragraph to describe the effect of X on Z, and any confounding effect of Z.
+
+```{r}
+summary(mod8 <- lm(Y ~ X + Z, data = sim2))
+```
+The effect of X on Y is 0.03896. Z is a confounder because it changes the estimate of the effect of X on Y.
 
 
 

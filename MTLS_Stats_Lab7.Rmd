@@ -1,5 +1,5 @@
 ---
-title: "R Notebook"
+title: "Lab 7: Simple linear regression"
 output: html_notebook
 ---
 
