@@ -1,0 +1,199 @@
+---
+title: "Lab 11 - Bioinformatics"
+output: html_notebook
+---
+
+In this exercise, we use the course data set (the BeatAML2 cohort), look at the data and see whether there are patterns of expression among genes and patients. You will: 1) get the gene expression data and have brief information about the data; 2) do filtering; 3) observe the similarities/dissimilarities between samples and between genes; 4) get familiar with different distance measures.
+
+Researchers want to investigate the biomarkers that make the difference between patients with ”Complete Response” vs ”Refractory” after the first treatment using gene expression data, we use read count data (rnaCounts) and its normalized data (rnaNorm) in this exercise. More details about the normalization of RNA-seq data will be discussed in Lecture 14. We first load and extract relevant data for the investigation.
+
+```{r}
+load(file="BeatAML2_clean.RData")
+pick=clinical_data$responseToInductionTx %in% c("Complete Response","Refractory")
+rnaCounts=rnaCounts[,pick]
+rnaNorm=rnaNorm[,pick]
+clinical_data=clinical_data[pick,]
+
+```
+
+### A quick look
+We look at the selected data for analysis with basic information
+
+```{r}
+dim(rnaCounts)
+dim(rnaNorm)
+table(clinical_data$responseToInductionTx)
+
+```
+We see that the expression data set consists of 56124 features (genes) and 312 samples from AML
+patients. From the clinical data, we observe there are 214 AML patients with Complete Response
+vs 98 AML cases of Refractory.
+
+
+### Filtering features
+We start by filtering the expression data. We focus on using only curated genes in the gene name
+database of HUGO Gene Nomenclature Committee. First, we need a mapping between Ensembl
+gene ID and gene symbol of HUGO Gene Nomenclature Committee. We already prepared the
+mapping and stored it in geneMap object. If you want to do it for new data, we need to install the
+Bioconductor package biomaRt and use the function getBM() to extract the corresponding HGNC
+symbol from Ensembl gene ID as follows.
+
+```{r}
+if (!require("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+BiocManager::install("biomaRt")
+library('biomaRt')
+mart <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
+geneMap <- getBM(filters= "ensembl_gene_id",
+attributes= c("ensembl_gene_id","hgnc_symbol"),
+values=rownames(rnaNorm),mart= mart)
+
+```
+
+We print several lines of geneMap and observe the number of rows:
+
+```{r}
+head(geneMap)
+nrow(geneMap)
+```
+
+Thus, there are 55,961 rows different from the number of genes in the gene expression matrix.
+We start with removing features without hgnc symbol:
+
+```{r}
+p=which(geneMap$hgnc_symbol=="")
+length(p)
+geneMap=geneMap[-p, ]
+```
+
+Remove features with duplicated gene names:
+```{r}
+d=geneMap$ensembl_gene_id[which(duplicated(geneMap$hgnc_symbol) |
+duplicated(geneMap$ensembl_gene_id))]
+p=which(geneMap$ensembl_gene_id %in% d)
+length(p)
+geneMap=geneMap[-p, ]
+```
+Now, apply the filters for gene expression data:
+```{r}
+gexCount=rnaCounts[rownames(rnaCounts) %in% geneMap$ensembl_gene_id,]
+gexNorm=rnaNorm[rownames(rnaNorm) %in% geneMap$ensembl_gene_id,]
+
+```
+
+Remove genes not expressed (read count ≤ 2) in more than 90% samples
+```{r}
+x=apply(gexCount, 1, function(x) sum(x > 2))
+p=x > ncol(gexCount)*0.10
+sum(p)
+gexCount=gexCount[p,]
+gexNorm=gexNorm[p,]
+
+```
+Remove genes with normalized expression IQR ≤ the median of IQR
+```{r}
+q3=apply(gexNorm, 1, function(x) quantile(x, 0.75))
+q1=apply(gexNorm, 1, function(x) quantile(x, 0.25))
+iqr=q3-q1
+p=which(iqr > quantile(iqr, probs=0.5 ))
+length(p)
+```
+```{r}
+gexCount=gexCount[p,]
+gexNorm=gexNorm[p,]
+dim(gexNorm)
+
+```
+We see that 17,611 features without the HGNC symbol, 16 features were eliminated as duplicates,
+12,416 features with low count (≤ 2) in more than 90% samples were removed, and 12,954 were
+eliminated due to below the median of IQR. 
+
+Here, we’ll just keep the filtered expression set (12,953 remaining genes) for further processing
+We save the data for later use
+```{r}
+save(geneMap, gexNorm, gexCount, clinical_data, file="AMLFileredData.RData")
+```
+
+Now we use filtered and normalized gene expression (gexNorm) for further analysis. For convenience,
+we assign it to a new object gex which we will use from now on.
+```{r}
+gex=gexNorm
+
+```
+Let’s have a look at the distribution of the gene expression of a gene and a sample, for example take
+the first gene, and the first sample (BA2409) in the data matrix.
+Now, let’s have a look at the distribution of the gene expression of a gene, for example take the first
+gene in the data matrix
+
+```{r}
+hist(gex[1,], main="Histogram of a gene")
+
+```
+Do you think the normalized gene expression data approximates the normal distribution? 
+Now, we plot to compare gene 1 to the next two genes:
+```{r}
+par(mfrow=c(1,2)) #setting up to put two plots in one figure
+plot(gex[1,],gex[2,], main="Gene 1 vs gene 2")
+abline(0,1)
+plot(gex[1,],gex[3,], main="Gene 1 vs gene 3 ")
+abline(0,1)
+```
+In the plots, each point presents one sample: the black line is the diagonal line that if a sample stays
+in the line, two genes have an equal expression in that sample. 
+From the plots, it is not very clear but gene 1 is likely more similar to gene 3 than gene 2. We do similar plots for samples:
+```{r}
+par(mfrow=c(1,2))
+plot(gex[,1],gex[,2], main="Sample 1 vs Sample 2")
+abline(0,1)
+plot(gex[,1],gex[,3], main="Sample 1 vs Sample 3")
+abline(0,1)
+
+```
+There are many more points in the figures, if we enlarge the figures, sample 1 is likely more dissimilar
+to sample 2 rather than sample 3. Now we quantify this by computing the distances between them.
+
+We start with samples, by defining a distance matrix between samples; to do so, we have to flip
+the expression matrix (swap rows and columns) using the function t() (for transpose), because the
+function dist calculates distances between the rows of a matrix (i.e. along the columns):
+
+```{r}
+distSample = dist(t(gex))
+as.matrix(distSample)[1:10,1:10]
+```
+The distances between the first 10 samples are printed. Note that the lower half of the distance
+matrix and the upper distances above the diagonal are the same, and distances along the diagonal
+(i.e. sample to itself) are of course zero. 
+For the sample in the previous plot, the Euclidean distance between sample 1 (BA2409) and sample 2 (BA3037) is 324.1630, higher than 297.2880, the distance between sample 1 and sample 3 (BA2865). 
+
+Now we use the correlation distance instead of the Euclidean distance for the three samples:
+```{r}
+cor_dist_1vs2=sqrt(2*(1-cor(gex[,1],gex[,2], method = "pearson")))
+cor_dist_1vs3=sqrt(2*(1-cor(gex[,1],gex[,3], method = "pearson")))
+round(cor_dist_1vs2,2)
+round(cor_dist_1vs3,2)
+```
+Is this result concordant with the result using the Euclidean distance? We will use the Euclidean
+distance for clustering and plotting in the next Lab Exercise.
+Yes.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
