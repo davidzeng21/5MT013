@@ -1,0 +1,294 @@
+---
+title: "Lab 10: Interactions (Effect modification)"
+output: html_notebook
+---
+
+```{r}
+# load useful packages
+library(dplyr)
+library(tibble)
+library(ggplot2)
+library(broom)
+library(ggfortify)
+```
+
+## Part A
+
+Open the dataset “Lab10_A_data.txt”. You have measurements from 185 children on an outcome Y and an exposure X. Around half the samples are from children who grew up without siblings, and the other half are from children who grew up with at least one sibling in the family home. Only one child from each family was included in the study (so the children in the study are not related to each other). The exercise is to investigate the effect of X on the outcome Y, and to assess whether it is affected by the number of siblings a child has.
+
+```{r}
+# Part A
+#
+sim1 <- read.table("Lab10_A_data.txt", header = TRUE, sep = "\t")
+
+```
+
+### 1.
+
+a)  First, explore the dataset and complete the table below.
+
+```{r}
+
+sim1 |> group_by(siblings) |> 
+    summarize(n = n(), 
+              m_y = mean(Y), sd_y = sd(Y), min_y = min(Y), max_y = max(Y),
+              m_x = mean(X), sd_x = sd(X), min_x = min(X), max_x = max(X))
+
+sim1 |> 
+    summarize(siblings = "Overall",
+              n = n(), 
+              m_y = mean(Y), sd_y = sd(Y), min_y = min(Y), max_y = max(Y),
+              m_x = mean(X), sd_x = sd(X), min_x = min(X), max_x = max(X))
+
+```
+
+b)  Draw a scatter plot of Y against X. Does it look like there is an association between the two variables? Is this a strong association? What do you think the slope of the regression model will be?
+
+Yes. Yes it is a strong association. The slope of the regression model will be positive.
+
+```{r}
+ggplot(sim1) + geom_point(aes(X, Y)) + geom_smooth(aes(X, Y), method = "lm")
+```
+
+### 2.Fit a linear regression model of Y against X.
+
+```{r}
+summary(mod1 <- lm(Y ~ X, data = sim1))
+```
+
+a)  How close was your guess for the slope? The estimated slope is 1.4266. My guess was that the slope would be positive, which is correct.
+
+b)  Write down the equation of this regression model. Y = 1.4266\*X + -76.9216
+
+c)  Based upon the results from this model, what conclusions would you draw about the association between Y and X? There is a positive association between Y and X. For every unit increase in X, Y increases by 1.4266.
+
+### 3.
+
+a)  Looking at the table above, is there an association between Y and number of siblings, X and number of siblings? Yes, there is an association between Y and number of siblings. There is an association between X and number of siblings.
+
+b)Do you think number of siblings could confound the X-Y relationship? Yes, number of siblings could confound the X-Y relationship.
+
+### 4. Add the variable for number of siblings to the model.
+
+```{r}
+# note that "siblings" gets converted to a factor variable, with "2+ Siblings" 
+# as the reference level. This can be changed if needed.
+summary(mod2 <- lm(Y ~ X + siblings, data = sim1))
+```
+
+a)  Does the slope estimate change much? The slope estimate changes from 1.4266 to 1.4763. The slope estimate does not change much.
+b)  Write down the equation for this regression model. Y = 1.4763\*X - 78.8824 (for with siblings) - 6.6571 (for 0 sibling)
+
+### 5. Draw a scatter plot of Y against X, but use different marker shapes / colors for only children and children with multiple siblings.
+
+```{r}
+ggplot(sim1) + geom_point(aes(X, Y, colour = siblings, shape = siblings))
+```
+
+a)  Do you think the association between Y and X is the same in each group? No, the association between Y and X is not the same in each group.
+b)  Fit a regression model with an interaction between X and number of siblings. Write down the equation for this model.
+
+```{r}
+summary(mod3 <- lm(Y ~ X * siblings, data = sim1))
+```
+
+c)  How would you interpret these results? Write a few sentences that you could include in a journal paper to describe these results.
+
+Y = 1.9248\*X - 126.8184 (for with siblings) + 109.0472 (for 0 sibling) - 1.0756\*X\*siblings
+
+```{r}
+# bonus: plot of the two regression lines
+ggplot(sim1, aes(X, Y, colour = siblings, shape = siblings)) + geom_point() + geom_smooth(method=lm)
+```
+
+## Part B
+
+Open the dataset “Lab10_B_data.txt”.
+
+```{r}
+sim2 <- read.table("Lab10_B_data.txt", header = TRUE, sep = "\t")
+```
+
+### 6. Fit a linear regression with Y as the outcome and X as the only predictor variable.
+
+```{r}
+summary(mod4 <- lm(Y ~ X, data = sim2))
+```
+
+a)  What is the estimate slope of X? The estimated slope of $X$ is $14.8244$.
+
+b)  What does this represent? Is it useful? Write a sentence or two to describe the crude association between X and Y. This represents the change in $Y$ for a one unit increase in $X$. It is useful to know the crude association between $X$ and $Y$.
+
+### 7. Because the observed values of X are on a small scale, it can be difficult to interpret a “one unit increase” in X – this is more than the observed range of X. We can therefore multiply X by (for example) 100.
+
+a)  Create a new variable which is equal to X multiplied by 100.
+
+```{r}
+sim2a <- sim2 |> mutate(X100 = X * 100)
+```
+
+b)  Without fitting any models in R, what do you expect to happen to the estimates from the model if you were to include this new scaled version of X? Will each of the following decrease, remain the same\< or increase (or is it impossible to say)? (You may find it helps to write down the regression equation.)
+
+<!-- -->
+
+i.  Slope of X The slope of $X$ will decrease 100 times.
+ii. The standard error for the slope estimate The standard error for the slope estimate will decrease 100 times.
+iii. The t-statistic and hence the P-value for X The t-statistic and hence the P-value for $X$ will remain the same.
+iv. Intercept The intercept will stay the same.
+v.  P-value for the intercept The P-value for the intercept will remain the same.
+vi. $R^2$ The $R^2$ will remain the same.
+
+```{r}
+summary(mod5 <- lm(Y ~ X100, data = sim2a))
+```
+
+### 8. We will now consider what impact age has on the association between Y and X.
+
+a)  Fit a regression model on Y, including the scaled version of X and age. What is the value of slope now? Has age confounded the X-Y relationship?
+
+```{r}
+summary(mod6 <- lm(Y ~ X100 + age, data = sim2a))
+```
+
+The slope is 0.13495. The slope has a moderate level of decrease. But the P-value for X have increased. Age has not confounded the X-Y relationship.
+
+### 9.
+
+a)  Fit a regression model including an interaction between the scaled version of X and age.
+
+```{r}
+# NOTE: you can also explicitly add main effect and interaction terms: Y ~ X100 + age + X100:age
+summary(mod7 <- lm(Y ~ X100 * age, data = sim2a))
+```
+
+b)  Write down equation of this model. Y = -0.459523\*X100 -0.009251\*age - 0.011533\*X100\*age + 19.691485
+
+c)  Is there evidence for an interaction? Yes, there is evidence for an interaction.
+
+d)  What does the slope estimate for X from this model represent? The slope estimate for $X$ from this model represents the change in $Y$ for a one unit increase in $X$ when age is 0.
+
+e)  What does the value of the interaction parameter represent? The value of the interaction parameter represents the change in the slope of $X$ for a one unit increase in age.
+
+f)  Use the parameter estimates to calculate the predicted values from this model for Y at X=0.2 and 0.4, and age=40, 50, and 60.
+
+```{r}
+augment(mod7, newdata = data.frame(X100 = rep(c(20, 40), each = 3), age = rep(seq(40, 60, 10), times=2)))
+
+```
+
+### 10. It can be difficult to interpret parameters when there is an interaction between two continuous variables. To make the estimates from the model more meaningful, we can center the variables.
+
+a)  Center the rescaled X value at 25 and center the age variable at 50. Fit a regression model which includes both the main effects and the interaction of these two variables.
+
+```{r}
+sim2b <- sim2a |> mutate(cX100 = X100 - 25, cage = age - 50)
+summary(mod8 <- lm(Y ~ cX100 * cage, data = sim2b))
+```
+
+b)  Write down equation of this model. Y = 0.117137\*cX100 - 0.279079\*cage - 0.011533\*cX100\*cage + 22.157366
+c)  Confirm that the model gives you the same predicted values for Y as you calculated earlier.
+
+```{r}
+augment(mod8, newdata = data.frame(cX100 = rep(c(20, 40), each = 3) - 25, cage = rep(seq(40, 60, 10), times=2) - 50))
+
+```
+
+d)  What is the interpretation of each of the following:
+
+<!-- -->
+
+i.  The main effect of X The main effect of $X$ is the change in $Y$ for a one unit increase in $X$ when age is 50.
+ii. The interaction parameter The interaction parameter is the change in the slope of $X$ for a one unit increase in age.
+iii. The intercept parameter The intercept parameter is the value of $Y$ when $X$ is 25 and age is 50.
+
+<!-- -->
+
+e)  Write a short paragraph to explain the effect of X on Y, describing the effect of age on this relationship. The effect of $X$ on $Y$ is the change in $Y$ for a one unit increase in $X$ when age is 50. The effect of age on this relationship is the change in the slope of $X$ for a one unit increase in age.
+
+### (Advanced) 11. Interactions between two continuous variables can be tricky to visualize, difficult to understand intuitively, and difficult to describe in simple words. Therefore we sometimes split one of the variables into groups to see the impact within each strata. Create a new categorical variable, of age stratified into ten-year age bands.
+
+```{r}
+sim2c <- sim2b |> mutate(age_cat = cut(age, breaks = seq(30, 80, 10), include.lowest = TRUE))
+
+```
+
+Fit a regression model including the main effect of the scaled, centered version of X, this categorical age variable, and their interaction. Perform a global test for interaction.
+
+```{r}
+summary(mod9 <- lm(Y ~ cX100 + age_cat, data = sim2c))
+summary(mod10 <- lm(Y ~ cX100 * age_cat, data = sim2c))
+```
+
+```{r}
+anova(mod10, mod9)
+```
+
+Write down the regression equation and Interpret the estimated parameters.
+
+#### Model 9 (No interaction)
+
+$$Y = 17.73899 + 0.13726 \cdot \text{cX100} + \text{AgeEffect}$$
+
+Where:
+
+$$
+\text{AgeEffect} =
+\begin{cases} 
+0 & \text{if age } \leq 40, \\
+3.72505 & \text{if age in } (40, 50], \\
+5.97310 & \text{if age in } (50, 60], \\
+9.00773 & \text{if age in } (60, 70], \\
+10.07347 & \text{if age in } (70, 80].
+\end{cases}
+$$
+
+#### Model 10 (With interaction)
+
+$$Y = 17.74236 + (\text{AgeEffect}) + (\text{InteractionEffect})$$
+
+Where:
+
+$$
+\text{AgeEffect} =
+\begin{cases} 
+0 & \text{if age } \leq 40, \\
+3.71025 & \text{if age in } (40, 50], \\
+6.06491 & \text{if age in } (50, 60], \\
+8.75438 & \text{if age in } (60, 70], \\
+9.94909 & \text{if age in } (70, 80].
+\end{cases}
+$$
+
+$$
+\text{InteractionEffect} =
+\begin{cases} 
+0 & \text{if age } \leq 40, \\
+0.18695 \cdot \text{cX100} & \text{if age in } (40, 50], \\
+0.29347 \cdot \text{cX100} & \text{if age in } (50, 60], \\
+0.35908 \cdot \text{cX100} & \text{if age in } (60, 70], \\
+0.54191 \cdot \text{cX100} & \text{if age in } (70, 80].
+\end{cases}
+$$
+
+#### Parameter Interpretation
+
+1.  **Model 9 (No interaction):**
+    -   **Intercept (**$\beta_0 = 17.73899$): This represents the baseline value of $Y$ for individuals in the age group $(30, 40]$ when $\text{cX100} = 0$.
+    -   **Effect of** $\text{cX100} (\beta_1 = 0.13726)$: For every unit increase in the scaled and centered $X$, the expected value of $Y$ increases by $0.13726$, regardless of age.
+    -   **Effect of age categories (**$\beta_{\text{age}}$):
+        -   $\beta_{\text{age(40,50]}} = 3.72505$: Individuals aged $(40, 50]$ have $3.72505$ higher $Y$ on average than those in the reference group $(30, 40]$.
+        -   $\beta_{\text{age(50,60]}} = 5.97310$: Individuals aged $(50, 60]$ have $5.97310$ higher $Y$ on average than the reference group.
+        -   $\beta_{\text{age(60,70]}} = 9.00773$: Individuals aged $(60, 70]$ have $9.00773$ higher $Y$ on average than the reference group.
+        -   $\beta_{\text{age(70,80]}} = 10.07347$: Individuals aged $(70, 80]$ have $10.07347$ higher $Y$ on average than the reference group.
+2.  **Model 10 (With interaction):**
+    -   **Intercept (**$\beta_0 = 17.74236$): This represents the baseline $Y$ for individuals in the age group $(30, 40]$ when $\text{cX100} = 0$.
+    -   **Effect of** $\text{cX100} (\beta_1 = -0.08740)$: For individuals in the reference group $(30, 40]$, the effect of a unit increase in $\text{cX100}$ on $Y$ is $-0.08740$.
+    -   **Effect of age categories (**$\beta_{\text{age}}$):
+        -   $\beta_{\text{age(40,50]}} = 3.71025$, $\beta_{\text{age(50,60]}} = 6.06491$, $\beta_{\text{age(60,70]}} = 8.75438$, $\beta_{\text{age(70,80]}} = 9.94909$: These are the baseline differences in $Y$ for individuals in these age groups compared to the reference group.
+    -   **Interaction terms (**$\beta_{\text{interaction}}$):
+        -   $\beta_{\text{cX100:age(40,50]}} = 0.18695$: In the age group $(40, 50]$, the effect of $\text{cX100}$ on $Y$ increases by $0.18695$ compared to the reference group.
+        -   $\beta_{\text{cX100:age(50,60]}} = 0.29347$: In the age group $(50, 60]$, the effect of $\text{cX100}$ on $Y$ increases by $0.29347$ compared to the reference group.
+        -   $\beta_{\text{cX100:age(60,70]}} = 0.35908$: In the age group $(60, 70]$, the effect of $\text{cX100}$ on $Y$ increases by $0.35908$ compared to the reference group.
+        -   $\beta_{\text{cX100:age(70,80]}} = 0.54191$: In the age group $(70, 80]$, the effect of $\text{cX100}$ on $Y$ increases by $0.54191$ compared to the reference group.
+
+Global test for interaction (**ANOVA** results): The $p$-value for interaction ($0.0001201$) indicates that including interaction terms significantly improves the model.

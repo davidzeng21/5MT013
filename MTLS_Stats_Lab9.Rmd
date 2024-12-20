@@ -1,0 +1,207 @@
+---
+title: "Lab 9: Logistic regression“
+output: html_notebook
+---
+
+```{r}
+# load useful packages
+library(dplyr)
+library(tibble)
+library(ggplot2)
+library(broom)
+library(ggfortify)
+```
+
+```{r}
+# load course data
+load("BeatAML2_clean.RData")
+```
+
+### 1. We will investigate the association between FLT3-ITD status (negative / positive) and sex (female / male).
+a) Complete the following table.
+
+```{r}
+with(clinical_data, table(consensus_sex, `FLT3-ITD`))
+```
+First we will take the unusual step of considering sex to be the outcome and FLT3-ITD to be the exposure.
+b) What is the “risk” of being female among people who are FLT3-ITD negative? And among those who are positive?
+The risk of being female among people who are FLT3-ITD negative is 146/(146+190) = 0.4345(43.45%)
+The risk of being female among people who are FLT3-ITD positive is 56/(56+50) = 0.5283(52.83%)
+c) Hence what is the risk ratio?
+The risk ratio is 0.5283/0.4345 = 1.216
+
+d) Similarly, what are the odds of being female among people who are FLT3-ITD negative? And among those who are positive?
+The odds Among FLT3-ITD negative is 146/190 = 0.7684.
+The odds Among FLT3-ITD positive is 56/50 = 1.12.
+e) Hence what is the odds ratio?
+The odds ratio is 1.12/0.7684 = 1.458.
+
+f) Now, repeat the above, but considering FLT3-ITD as the outcome and sex as the exposure. What do you notice?
+Risk(FLT3-ITD negative | Female): 146/(146+56) = 0.7228
+Risk(FLT3-ITD negative | Male): 190/(190+50) = 0.7917
+Risk ratio: 0.7228/0.7917 = 0.912
+
+Odds(FLT3-ITD negative | Female) = 146/56 = 2.607
+Odds(FLT3-ITD negative | Male) = 190/50 = 3.8
+Odds ratio: 2.607/3.8 = 0.6855
+
+The risk ratio and odds ratio depend on which variable is considered the “exposure” and which is considered the “outcome.”
+The risk measures (risk ratio) change more dramatically because the baseline risks in each orientation differ.
+The odds ratio also changes, but importantly, the magnitude and interpretation differ when switching exposure and outcome.
+This demonstrates that unlike the odds ratio (in a case-control setting, which is symmetric in terms of outcome definition), the risk ratio is not symmetrical. Even the odds ratio here changes when we switch perspective because the labeling of exposure/outcome shifts the ratios of interest.
+
+### 2. We will now perform a logistic regression, with FLT3-ITD as the outcome and sex as the exposure.
+
+```{r}
+# recode the data so that the outcome and exposure are binary variables
+# (boolean FALSE/TRUE converts to numeric 0/1)
+
+mod1data <- clinical_data |> mutate(mutstatus = as.numeric(`FLT3-ITD` == "positive"),
+                                   female = as.numeric(consensus_sex == "Female"), 
+                                   .keep = "none") # drop all other variables
+```
+
+```{r}
+# fit the logistic regression model
+summary(mod1 <- glm(mutstatus ~  female, family = binomial, data = mod1data))
+
+```
+a) What is the log odds ratio? What is the p-value associated with this estimate?
+
+The log odds ratio is 0.3767. The p-value is 0.0919.
+
+b) What would the log odds ratio be under the null hypothesis? Does this model provide evidence against the null hypothesis of no association?
+
+Under the null hypothesis, the log odds ratio would be 0. The p-value is 0.0919, which is not significant at the 0.05 level. This model does not provide evidence against the null hypothesis of no association.
+
+c) Confirm that the log odds ratio from the model is indeed the log of the odds ratio you calculated earlier.
+
+The odds ratio is exp(0.3767) = 1.457. This is the same as the odds ratio calculated earlier.
+
+d) What is the value of the intercept from the model? What does this quantity represent? Is it useful?
+
+The value of the intercept from the model is -1.3350. This represents the log odds of “mutstatus = 1” for the baseline category when the predictor female=0 (i.e., for males).
+odds = exp(-1.3350) = 0.263
+probability = 0.263/(1+0.263) = 0.208
+So the intercept is the log odds of the outcome for the reference group (males). Is it useful? The intercept itself isn’t very informative about the association we’re interested in (female vs male), but it sets the baseline level of the outcome. It’s often not of direct substantive interest, but it’s necessary for the model to anchor the predicted probabilities.
+
+e) Write down the equation of the model.
+
+$$\mathrm{logit}(p) = \log{\frac{p}{1-p}}=−1.3350+0.3767×(\text{female})$$
+where$p=P(\text{mutstatus}=1)$.
+
+f) What is the odds ratio for sex from the model, and its 95% confidence interval? What is the p-value associated with this estimate?
+
+The odds ratio is $\exp(0.3767) = 1.457$
+
+```{r}
+exp(confint(mod1, "female"))
+```
+The p-value associated with this estimate (as from the summary) is 0.0919, the same p-value we discussed earlier.
+
+g) What would the odds ratio be under the null hypothesis?
+
+Under the null hypothesis, the odds ratio would be 1.
+An OR of 1 indicates no difference in odds between females and males.
+
+h) Write a short paragraph to describe the association between sex and FLT3-ITD status. Hint: you should include measures of uncertainty, and be careful to describe the direction of the association.
+
+When considering the association between sex (female vs. male) and FLT3-ITD mutation status, our fitted logistic regression model suggests that the odds of having FLT3-ITD are about 1.46 times higher in females compared to males (OR = 1.46; 95% CI: 0.94 to 2.26). Although the point estimate indicates a possible increased odds of FLT3-ITD among females, the confidence interval is wide and includes 1, reflecting considerable uncertainty. The p-value (0.092) is greater than the conventional 0.05 threshold, meaning we do not have strong statistical evidence against the null hypothesis of no association. In short, while the observed direction of association favors a higher odds in females, the evidence is not strong enough to confidently conclude that sex is related to FLT3-ITD status.
+
+i) Create a new variable which contains the deviance residuals for this model. Plot them against the linear predictor for each individual. What do you notice? Why is this?
+
+```{r}
+plotdata1 <- augment(mod1)
+ggplot(plotdata1) + geom_point(aes(.fitted, .resid))
+```
+```{r}
+# Extract deviance residuals
+mod1data$dev_resid <- residuals(mod1, type = "deviance")
+
+# Extract the linear predictor (log-odds)
+mod1data$linear_predictor <- predict(mod1, type = "link")
+
+# Plot deviance residuals vs. linear predictor
+plot(mod1data$linear_predictor, mod1data$dev_resid, 
+     xlab = "Linear Predictor (log-odds)", 
+     ylab = "Deviance Residuals", 
+     main = "Deviance Residuals vs. Linear Predictor")
+abline(h=0, col="red")
+
+```
+
+
+
+### 3. We will now consider the effect of the continuous variable JOSD1 (the normalised variable) on FLT3-ITD.
+a) Fit a logistic regression model with FLT3-ITD as the outcome and JOSD1 as the predictor.
+```{r}
+# select the gene of interest and attach mutation status
+mod2data <- as_tibble(t(rnaNorm["ENSG00000100221", , drop = FALSE]), rownames = "sample") |> 
+    rename(JOSD1 = ENSG00000100221) |>
+    left_join(clinical_data |> select(sample, mutstatus=`FLT3-ITD`), 
+              by = "sample") |>
+    mutate(mutstatus = as.numeric(mutstatus == "positive"))
+
+summary(mod2 <- glm(mutstatus ~ JOSD1, family = binomial, data = mod2data))
+```
+
+b) What is the estimated effect of JOSD1 on FLT3-ITD status. Is there evidence to support an association between the two variables?
+The estimated effect of JOSD1 on FLT3-ITD status is -0.2373. The p-value is 0.119. There is no evidence to support an association between the two variables.
+
+c) What is the estimate for the intercept in this model? What does it represent? Is it useful?
+The estimate for the intercept in this model is 0.4934. This represents the log odds of “mutstatus = 1” when JOSD1 = 0.4934. It is not useful because JOSD1 is a normalised variable, so the intercept is not interpretable.
+
+
+
+
+d) Write down the equation for this model (on the log odds scale).
+$$\mathrm{logit}(p) = \log{\frac{p}{1-p}}=0.4934−0.2373×(\text{JOSD1})$$
+where$p=P(\text{mutstatus}=1)$
+
+### 4. We will now standardize the JOSD1 variable. To do this, we subtract the mean and divide by the standard deviation. This will give us a new variable which has mean 0 and standard deviation 1.
+```{r}
+mod3data <- mod2data |> mutate(sJOSD1 = (JOSD1 - mean(JOSD1))/sd(JOSD1))
+```
+
+
+Fit a regression model of FLT3-ITD against this new, standardised JOSD1. 
+Compare the model estimates to those you obtained for the unstandardised JOSD1. What has changed, and what has stayed the same?
+```{r}
+summary(mod3 <- glm(mutstatus ~ sJOSD1, family = binomial, data = mod3data))
+```
+Create a new variable which contains the deviance residuals for this model. 
+
+Plot them against the linear predictor for each individual. Is the plot useful to help assess if the model provides a good fit to the data?
+
+```{r}
+plotdata3 <- augment(mod3)
+ggplot(plotdata3) + geom_point(aes(.fitted, .resid))
+```
+
+```{r}
+autoplot(mod3)
+plot(mod3, which=3)
+```
+## Advanced
+### 5. We return to the model with JOSD1 as a continuous variable and FLT3-ITD status as the outcome. Obtain the predicted probability for each observation.
+```{r}
+prob <- augment(mod2, type.predict = "response")
+```
+
+Split the JOSD1 variable into 10 groups, each containing (approximately) the same number of observations. Sum the probabilities within each group to obtain the predicted number of events. Compare these to the actual number of events. Do the model predictions provide a good fit to the observed data?
+```{r}
+fitdata <- prob |> 
+    mutate(JOSD1_decile = cut(JOSD1, 
+                              breaks = quantile(JOSD1, probs = seq(0, 1, 0.1)),
+                              include.lowest = TRUE)) |> 
+    group_by(JOSD1_decile) |> 
+    summarize(prob_sum = sum(.fitted), n_event = sum(mutstatus))
+```
+
+```{r}
+print(fitdata)
+```
+
+
+
+
