@@ -1,0 +1,117 @@
+---
+title: "Lab 12: Clustering and plotting"
+output: html_notebook
+---
+
+```{r}
+load("AMLFileredData.RData")
+gex=gexNorm
+```
+
+### Hierarchical clustering
+```{r}
+distSample = dist(t(gex))
+sampleClus = hclust(distSample)
+par(mfrow=c(1,1)) ##setting up to put one plot in one figure
+plot(sampleClus)
+
+```
+```{r}
+plot(sampleClus)
+
+abline(h=380, col="red", lty=2, lwd=1.5)
+hclust_group_h380=cutree(sampleClus, h= 380)
+table(hclust_group_h380)
+head(hclust_group_h380)
+```
+```{r}
+plot(sampleClus)
+hclust_group_level4=cutree(sampleClus, k = 4)
+rect.hclust(sampleClus, k = 4, border = c("grey","blue","red","green"))
+table(hclust_group_level4)
+```
+```{r}
+geneClus = hclust(dist(gex))
+plot(geneClus, labels=FALSE)
+abline(h=250, lty=2)
+```
+### Heapmap
+```{r}
+#install ComplexHeatmap
+if (!require("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+BiocManager::install("ComplexHeatmap")
+#install jpeg
+install.packages("jpeg")
+```
+
+```{r}
+library(ComplexHeatmap)
+library(jpeg)
+column_ha = HeatmapAnnotation(
+FirstTreament = clinical_data$responseToInductionTx,
+ELN2017 = clinical_data$ELN2017,
+FAB=clinical_data$fabBlastMorphology,
+Fusion=clinical_data$consensusAMLFusions,
+col = list(FirstTreament = c("Complete Response"="red","Refractory"="blue"),
+height=unit(200, "points"))
+)
+jpeg(filename = "heatmap.jpg", width = 1200, height = 800, quality = 100)
+ht=Heatmap(gex, name = "Gene expression",
+           show_column_names =FALSE,
+           show_row_names = FALSE,
+           cluster_rows = geneClus,
+           cluster_columns = sampleClus,
+           top_annotation = column_ha,
+           use_raster = TRUE,
+           raster_device = "jpeg")
+draw(ht)
+dev.off() #NOTE: Must run this function to export the plot to file
+getwd()
+```
+```{r}
+jpeg(filename = "heatmap_basic.jpg", width = 1200, height = 800, quality = 100)
+colSide=ifelse(clinical_data$responseToInductionTx=="Complete Response","blue","red")
+heatmap(gex, Colv = TRUE, Rowv = TRUE, ColSideColors=colSide)
+dev.off() #NOTE: Must run this function to export the plot to file
+getwd()
+```
+
+```{r}
+par(mfrow=c(1,2))
+plot(sampleClus)
+sampleClus_single = hclust(distSample, "single")
+plot(sampleClus_single)
+```
+### PCA
+```{r}
+install.packages(c("FactoMineR","factoextra"))
+```
+```{r}
+library(FactoMineR)
+library(factoextra)
+res=PCA(t(gex),graph = FALSE)
+```
+```{r}
+fviz_pca_ind(res,col.ind=clinical_data$responseToInductionTx,
+legend.title = "First Treatment",label="none")
+```
+
+```{r}
+fviz_pca_ind(res,col.ind=clinical_data$fabBlastMorphology,
+legend.title = "Morphology", label="none")
+```
+
+### Partitioning clustering
+
+```{r}
+set.seed(123456)
+kmeans_k4=kmeans(t(gex), 4)
+kmeans_k4_group=kmeans_k4$cluster
+fviz_pca_ind(res,col.ind=as.character(kmeans_k4_group),
+legend.title = "kmeans (k=4)",label="none")
+table(kmeans_k4_group)
+```
+```{r}
+table(hclust_group_level4,kmeans_k4_group)
+```
+
