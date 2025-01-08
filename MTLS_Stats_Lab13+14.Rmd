@@ -1,0 +1,294 @@
+---
+title: "Lab 13 + Lab 14"
+output: html_notebook
+---
+
+```{r}
+load("AMLFileredData.RData")
+gex=gexNorm
+```
+
+```{r}
+group=clinical_data$responseToInductionTx
+log2FC=STAT=PVAL=NULL
+for (i in 1:nrow(gex)){
+dat=split(gex[i,],group)
+dat_mean=sapply(dat,mean)
+t_res=t.test(dat$"Complete Response", dat$"Refractory")
+PVAL=c(PVAL,t_res$p.value)
+STAT=c(STAT,t_res$statistic)
+}
+DE_Res=data.frame(Gene=rownames(gex),t.statistic=STAT, p.value=PVAL)
+DE_Res$hgnc_symbol=geneMap$hgnc_symbol[match(DE_Res$Gene,geneMap$ensembl_gene_id)]
+DE_Res=DE_Res[order(abs(DE_Res$t.statistic), decreasing = TRUE),]
+head(DE_Res)
+```
+
+```{r}
+hist(PVAL,probability = TRUE,lwd=2, cex=2, cex.lab=1.5,
+cex.axis=1.5, cex.main=2, xlab="p-values", main="")
+
+```
+
+```{r}
+sum(DE_Res$p.value < 0.05)
+```
+```{r}
+DE_Res$Bonferroni=p.adjust(DE_Res$p.value, method="bonferroni")
+DE_Res$FDR=p.adjust(DE_Res$p.value, method="BH")
+```
+
+Questions: Compare the numbers of genes with adjusted p-values using Bonferroni and FDR < 0.05.
+Discuss with your friends about the results.
+
+```{r}
+sum(DE_Res$Bonferroni < 0.05)
+sum(DE_Res$FDR < 0.05)
+```
+Now we extract the genes and use them for visualization.
+
+```{r}
+DE_selected=DE_Res[DE_Res$FDR<0.05,]
+selected_genes=DE_selected$Gene
+DE_gex=gex[selected_genes,]
+```
+
+Questions:
+• Plot a heatmap for DE gex and compare it with the heatmap produced in the previous lab.
+
+```{r}
+colSide=ifelse(clinical_data$responseToInductionTx=="Complete Response","blue","red")
+heatmap(DE_gex, Colv = TRUE, Rowv = TRUE, ColSideColors=colSide)
+```
+
+• Does the new heatmap have a better separation between two groups (Complete Response vs Refractory)?
+Yes. The new heatmap has a better separation between two groups (Complete Response vs Refractory).
+
+
+• How do the genes reflect the separation of two large clusters of samples (from level 2 of the samples’ dendrogram)?
+The genes reflect the separation of two large clusters of samples (from level 2 of the samples’ dendrogram) by showing the genes that are differentially expressed between the two groups.
+
+
+• Plot two first PCs of PCA on DE gex, use FirstTreatment (Complete Response vs Refractory)
+for the sample labels, then compare this result with the PCA result from the section Principle
+component analysis in the previous lab.
+```{r}
+library(FactoMineR)
+library(factoextra)
+res=PCA(t(DE_gex),graph = FALSE)
+```
+
+```{r}
+fviz_pca_ind(res,col.ind=clinical_data$responseToInductionTx,
+legend.title = "First Treatment",label="none")
+```
+
+### Bootsraping
+```{r}
+bdat=gex["ENSG00000000938",]
+theta=mean(bdat) #the parameter of interest: mean
+hist(bdat, main="ENSG00000000938")
+abline(v=theta, col="red", lwd=2, lty=2)
+```
+The red vertical dash line indicates the mean of the distribution. Is the distribution well approximated
+by the normal distribution?
+
+```{r}
+#code A:
+res=t.test(bdat)
+res$conf.int
+
+```
+
+```{r}
+#Code B
+B=1000
+theta_B=NULL
+set.seed(123456)
+for (i in 1:B){
+  bootSamp=sample(bdat,replace = TRUE)
+  theta_B=c(theta_B,mean(bootSamp))
+}
+quantile(theta_B,probs=c(0.025,0.975))
+```
+
+Questions: Compare the percentile bootstrap CI in code B and the conventional CI in code A.
+Discuss with your friends about the results.
+
+The percentile bootstrap CI in code A is wider than the conventional CI in code B. The percentile bootstrap CI in code B is more accurate than the conventional CI in code A.
+
+### Gene set enrichment analysis
+
+```{r}
+if (!require("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+BiocManager::install("fgsea")
+```
+
+```{r}
+myRank=DE_Res$t.statistic
+names(myRank)=DE_Res$hgnc_symbol
+library("fgsea")
+GO_file = "c2.all.v2023.1.Hs.symbols.gmt"
+myGO = fgsea::gmtPathways(GO_file)
+fgseaRes <- fgsea(pathways = myGO,
+stats = myRank,
+minSize = 15,
+maxSize = 500)
+head(fgseaRes[order(pval), ])
+nrow(fgseaRes)
+sum(fgseaRes$padj < 0.2)
+```
+Thus, there are 3044 pathways reported, among those 865 pathways with FDR < 0.2. Now we plot
+the enrichment score of the top pathway
+
+```{r}
+plotEnrichment(myGO[["MULLIGHAN_MLL_SIGNATURE_2_UP"]],myRank) + labs(title="MULLIGHAN_MLL_SIGNATURE_2_UP")
+```
+This is an up-regulated pathway with ES=0.6060517. The Enrichment Score is calculated from top k genes in the list, what is the value of k (approximately)?
+
+The value of k is approximately 15000.
+
+Now extract the top 5 most up-regulated and down-regulated pathways.
+```{r}
+topPathwaysUp <- fgseaRes[ES > 0][head(order(pval), n=5), pathway]
+topPathwaysDown <- fgseaRes[ES < 0][head(order(pval), n=5), pathway]
+topPathways <- c(topPathwaysUp, rev(topPathwaysDown))
+plotGseaTable(myGO[topPathways], myRank, fgseaRes, gseaParam=0.5)
+```
+Discuss the results 
+Are these pathways relevant to AML? Look from the literature if there is any evidence of the relationship between these pathways and refractory AML.
+
+### Analysis of the Human Gene Set: MULLIGHAN_MLL_SIGNATURE_2_UP
+
+**Standard Name**: **MULLIGHAN_MLL_SIGNATURE_2_UP**  
+**Systematic Name**: **M3053**
+
+---
+
+### **Biological Context:**
+This gene set represents genes that are **upregulated in pediatric acute myeloid leukemia (AML)** with **rearranged MLL (mixed-lineage leukemia)** compared to AML cases with intact **MLL** and **NPM1**. 
+
+---
+
+### **Key Observations from the Description:**
+1. **Relevance to AML Subtypes**:
+   - Rearranged **MLL (gene ID: 4297)** in pediatric AML leads to a distinct expression profile compared to NPM1-mutated AML.
+   - Both subtypes exhibit dysregulated **HOX gene** expression, but the specific patterns differ significantly.
+
+2. **HOX Genes as Markers**:
+   - **MLL-rearranged AML** shows upregulation of genes associated with hematopoietic development, which drives leukemic transformation.
+   - NPM1-mutated AML, while also showing HOX gene dysregulation, exhibits a distinct expression signature.
+
+3. **Mechanistic Differences**:
+   - The findings suggest that mutated **NPM1** leads to abnormal HOX expression through mechanisms **independent of MLL rearrangements**, which might indicate therapeutic targeting differences between the subtypes.
+
+4. **Curated Collection (C2: CGP)**:
+   - This gene set is part of the curated database, specifically under chemical and genetic perturbations, signifying its role in genetic pathways affected by MLL rearrangement.
+
+---
+
+### **Relevance to Refractory AML**:
+- Pediatric AML with **MLL rearrangement** often has poor prognosis and high treatment resistance, classifying it as **refractory AML** in some cases.
+- Dysregulated HOX genes, as indicated in this signature, play a pivotal role in maintaining leukemic stem cells and driving resistance mechanisms.
+- **HOXA9**, a key gene in this set, is well-known for its role in leukemogenesis and refractory behavior in AML.
+
+---
+
+### **Evidence from Literature**:
+1. **Dysregulated HOX Genes in AML**:
+   - HOX genes such as **HOXA9**, **HOXA10**, and **MEIS1** are consistently implicated in MLL-rearranged leukemias, promoting self-renewal and inhibiting differentiation.
+   - Studies confirm that these genes are critical targets for therapeutic intervention in refractory AML.
+
+2. **MLL Rearrangement and Chemoresistance**:
+   - MLL-rearranged leukemias are highly aggressive and often fail conventional treatments. This resistance is attributed to epigenetic dysregulation (e.g., histone methylation by DOT1L) and transcriptional activation of HOX genes.
+
+3. **NPM1 Mutations vs. MLL Rearrangement**:
+   - While both result in dysregulated HOX genes, **MLL rearrangements** have a broader impact on leukemic pathways, making them more aggressive and refractory compared to NPM1-mutated AML.
+
+---
+
+### **Therapeutic Implications**:
+1. **Epigenetic Modulators**:
+   - Drugs targeting histone methyltransferases (e.g., **DOT1L inhibitors**) are under development for MLL-rearranged AML.
+   
+2. **HOX Gene Inhibitors**:
+   - Direct targeting of HOX gene expression or associated transcription factors (**MEIS1**) may provide a novel therapeutic strategy.
+
+3. **MLL Inhibitors**:
+   - Small molecules disrupting the MLL fusion protein complex (e.g., targeting MENIN-MLL interaction) have shown promise in preclinical studies.
+
+---
+
+### **Conclusion**:
+The **MULLIGHAN_MLL_SIGNATURE_2_UP** gene set provides valuable insights into the biology of MLL-rearranged AML. This subtype is characterized by aggressive behavior, driven by HOX gene dysregulation, and is often refractory to standard treatments. Understanding these pathways is critical for designing targeted therapies, particularly for pediatric patients with this challenging form of leukemia. 
+
+### Analysis of the Human Gene Set: JAATINEN_HEMATOPOIETIC_STEM_CELL_UP
+
+**Standard Name**: **JAATINEN_HEMATOPOIETIC_STEM_CELL_UP**  
+**Systematic Name**: **M15107**
+
+---
+
+### **Biological Context:**
+
+This gene set represents genes **up-regulated in CD133+ hematopoietic stem cells (HSCs)** compared to CD133- cells. CD133 is a marker associated with primitive hematopoietic cells, often used to isolate populations enriched in HSCs from human cord blood (CB). These genes provide insights into the characteristics and functionality of stem cells involved in hematopoiesis and transplantation.
+
+---
+
+### **Key Observations from the Description:**
+
+1. **CD133+ Cells**:
+   - CD133+ cells exhibit a distinct gene expression profile compared to CD133- cells, with **393 transcripts up-regulated** and **257 uniquely expressed** in CD133+ cells.
+   - These cells are enriched for genes associated with:
+     - **Metabolism**.
+     - **Cellular physiological processes**.
+     - **Cell communication**.
+     - **Development**.
+
+2. **Clonogenic Progenitor Capacity**:
+   - CD133+ cells possess clonogenic potential, meaning they can form colonies of progenitor cells, highlighting their role as primitive, undifferentiated stem cells.
+
+3. **Relevance to HSC Transplantation**:
+   - Cord blood-derived CD133+ cells offer an alternative to CD34+ cells for HSC transplantation due to their primitive characteristics.
+   - These cells could potentially enhance transplantation outcomes and immune reconstitution.
+
+---
+
+### **Relevance to AML (Acute Myeloid Leukemia)**:
+- **Connection to Leukemogenesis**:
+  - AML arises from hematopoietic progenitor or stem cells. The dysregulation of pathways active in CD133+ HSCs could play a role in leukemic transformation.
+  - Many genes in this gene set may overlap with those involved in leukemic stem cell (LSC) biology, as **leukemic stem cells share similarities with normal HSCs** but exhibit uncontrolled proliferation.
+
+- **CD133 as a Marker in AML**:
+  - CD133 is also expressed on leukemic stem cells in AML, making this gene set relevant for studying the biology of AML and identifying potential therapeutic targets.
+
+---
+
+### **Therapeutic Implications**:
+
+1. **Targeting Leukemic Stem Cells (LSCs)**:
+   - Many genes enriched in CD133+ normal HSCs are likely conserved in CD133+ LSCs. By comparing this gene set with AML datasets, researchers can identify potential targets that selectively eradicate LSCs while sparing normal HSCs.
+
+2. **Stem Cell Transplantation**:
+   - Understanding the gene expression profiles of CD133+ cells enhances their utility in transplantation. Optimizing the selection of HSCs may improve transplantation success, particularly in AML patients undergoing stem cell therapy.
+
+---
+
+### **Evidence from Literature**:
+
+1. **CD133 in AML**:
+   - CD133+ leukemic cells have been associated with chemotherapy resistance and disease relapse in AML. These cells likely represent the stem-like population that drives leukemia progression.
+   - Studies have shown that targeting CD133+ cells or the pathways enriched in these cells can improve therapeutic outcomes.
+
+2. **Primitive Markers and AML**:
+   - The genes identified in CD133+ HSCs include primitive markers essential for maintaining self-renewal and differentiation. Dysregulation of these genes in AML may contribute to the persistence of LSCs.
+
+3. **Cord Blood HSCs and Transplantation**:
+   - Cord blood-derived CD133+ cells have been successfully used in HSC transplantation for AML patients, highlighting their clinical relevance.
+
+---
+
+### **Conclusion**:
+The **JAATINEN_HEMATOPOIETIC_STEM_CELL_UP** gene set provides a foundation for understanding the biology of primitive hematopoietic stem cells (HSCs). This is highly relevant to AML, where the dysregulation of normal HSC pathways leads to leukemogenesis. Comparing this gene set to AML-related datasets can reveal new insights into leukemic stem cell biology and identify therapeutic strategies targeting refractory or relapsed AML. 
+
+
