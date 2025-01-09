@@ -1,0 +1,327 @@
+---
+title: "Lab 15: Prediction and cross-validation"
+output: html_notebook
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r}
+load("AMLFileredData.RData")
+gex=gexNorm
+group=clinical_data$responseToInductionTx
+```
+
+```{r}
+library(class)
+```
+
+The function knn.cv automatically performs leave-one-out cross-validation (LOO-CV) on a given data matrix and grouping variable.
+It takes as arguments the matrix of predictor variables, a vector with the outcomes, and the size of the local neighborhood.
+Note that knn.cv requires the data matrix to be in standard statistical format, i.e. samples as rows and variables/features as columns; we use the function t (as in transpose) to flip the expression matrix:
+
+```{r}
+pred1 = knn.cv(t(gex), group, k=1)
+```
+
+The object pred1 now contains the predictions for all samples, based on LOO-CV.
+This means that for each subject, we make a prediction based on the k closest feature profiles.
+In the example above, we consider only k=1 neighbor.
+We can then look at the frequencies, and also how well these predictions agree with the observed disease status:
+
+```{r}
+table(pred1)
+table(pred1, group)
+```
+
+That actually works quite well for Complete Response but not very well for Refractory.
+
+We can now repeat the same process for a bigger value of k (k=3) for the neighborhood size:
+
+```{r}
+pred3 = knn.cv(t(gex), group, k=3)
+```
+
+```{r}
+table(pred3, group)
+```
+
+Generally, we would run a loop like the one below to calculate the cross-validated error rates for a number of different neighborhood sizes.
+We use up to 19 neighbors, odd numbers only, so 10 different values for k in total.
+
+```{r}
+k = seq(1, 19, by=2)
+k
+```
+
+```{r}
+cverr = rep(NA, length(k))
+## Loop over all sizes
+for (i in 1:length(k)) {
+  cat("\n Processing k = ",k[i])
+  ## Run LOO-CV using specified neighborhood size
+  pred = knn.cv(t(gex), group, k=k[i])
+  ## Tabulate agreement
+  tab = table(pred, group)
+  ## Proportion of disagreement = error rate
+  cverr[i] = (tab[2,1] + tab[1,2])/sum(tab)
+  cat(" err=",cverr[i])
+}
+```
+
+```{r}
+cverr
+```
+
+```{r}
+plot(k, cverr, xlab="Size of neighborhood", ylab="LOO-CV", type="o")
+```
+
+k = 7 seems to do all right.
+Now if we had a new data set of gene expression signatures, e.g. from a follow-up experiment, we could use the existing data to predict the disease for the new data like this:
+
+```{r}
+newPred = knn(t(gex), t(newData), disease, k=7)
+```
+
+To make a prediction for the new data, and hope that the CV-LOO error rate of about 0.292 is not too different from the universe; but as we do not have any new data, we can’t.
+
+***Tuning parameters***: The R package `e1071` has a helper function that performs the whole business of cross-validation for different sizes of neighborhoods in one go.
+First, install the package if required by this command:
+```{r}
+install.packages("e1071")
+```
+Then, load the package and perform the cross-validation (of note, it would take 3-5 minutes to
+complete):
+
+```{r}
+library(e1071)
+cv1 = tune.knn(t(gex), as.factor(group), k=seq(1, 19, by=2),
+tunecontrol=tune.control(cross=length(group)))
+summary(cv1)
+```
+
+```{r}
+plot(cv1)
+```
+
+This is very convenient. If we want to e.g. check how LOO compares to a 10-fold cross-validation (it would also take 3-5 minutes to complete):
+```{r}
+set.seed(123456)
+cv2 = tune.knn(t(gex), as.factor(group), k=seq(1, 19, by=2),
+tunecontrol=tune.control(cross=10))
+summary(cv2)
+plot(cv2)
+```
+
+
+### Implementation of cross-validation
+
+Using cross-validation from the pre-built packages like e1071 and class is convenient, however, it limits our ability to customize the procedure. 
+In this section, we build simple codes to do crossvalidation (and LOOV). 
+First, we build a function makeFolds() to make k folds and randomly assign samples into the folds.
+
+```{r}
+makeFolds<-function(k=5, n, seedVal=123456){
+  # to do LOO-CV, just set k equal to n
+  set.seed(seedVal)
+  s=trunc(n/k)
+  foldId=rep(c(1:k),s+1)[1:n]
+  sampleIDx=sample(seq(n))
+  kFolds=split(sampleIDx,foldId)
+  return(kFolds)
+}
+```
+
+The function `makeFolds()` allocates n samples into k folds and returns the folds. If $k=n$, then it returns the sample allocation of LOOV. Now we can do 10-fold cross-validation for knn with k=7 (or any prediction tools like linear regression, or logistic regression, etc) using k=10 folds.
+
+```{r}
+#Do 10-fold cross-validation for k=7
+#assign to a new object, convert to data frame
+inData=as.data.frame(t(gex))
+#get folds
+sampleNum=nrow(inData)
+foldNum=10
+folds=makeFolds(foldNum,sampleNum)
+pred=NULL
+for (i in 1:foldNum) {
+  fi=folds[[i]]
+  #split data into training and test sets
+  trainx = inData[-fi,]
+  traincl = group[-fi]
+  testx = inData[fi,]
+  #do prediction, can use knn or any other prediction methods
+  res=knn(trainx, testx, traincl, k=7)
+  #keep results of the test set in each fold
+  names(res)=rownames(inData)[fi]
+  pred= c(pred,res)
+}
+#get the results in the right order
+pred=pred[match(rownames(inData),names(pred))]
+#print the confusion table
+table(pred, group)
+```
+We find that the error rate here is $91/312 = 29.2%$ which is similar to results found in cv2.
+
+(Bonus) The example above does k-nearest neighbor discrimination based on the full data matrix, i.e. the distances used to determine neighbors are calculated from all 10000+ features in the data. While the resulting prediction quality is not bad, this would be a very expensive predictor for generalizing to new data sets, as it requires measurement of all 10000+ features. It is therefore a relevant question how well a simpler predictor would do that is based only on the say top-20 features most differentially expressed between two groups. 
+
+
+*Naively* We can, of course, run a **feature selection** using t-test to identify these 20 features and use them in the k-NN prediction. For convenience, we collect the codes in the previous labs into a function findDEG() for reuse in the future:
+```{r}
+findDEG<-function(gex, group){
+  STAT=PVAL=NULL
+  for (i in 1:nrow(gex)){
+    dat=split(gex[i,],group)
+    t_res=t.test(dat$"Complete Response", dat$"Refractory") 
+    PVAL=c(PVAL,t_res$p.value)
+    STAT=c(STAT,t_res$statistic)
+  }
+  DE_Res=data.frame(Gene=rownames(gex),t.statistic=STAT, p.value=PVAL) 
+  DE_Res=DE_Res[order(abs(DE_Res$t.statistic), decreasing = TRUE),] 
+  DE_Res$Bonferroni=p.adjust(DE_Res$p.value, method="bonferroni")
+  DE_Res$FDR=p.adjust(DE_Res$p.value, method="BH")
+  return(DE_Res)
+}
+```
+
+These are the 20 features most differentially expressed between the two groups:
+```{r}
+DEG_list=findDEG(gex,group) 
+DEG_list[1:20,]
+```
+
+It appears that the top 20 genes show significant differences between the two diseases. We extract their names for use in prediction downstream:
+```{r}
+toplist=DEG_list$Gene[1:20]
+```
+
+Using k-NN with k = 7, we get
+```{r}
+pred7_20 = knn.cv(t(gex[toplist,]), group, k=7)
+table(pred7_20, group)
+```
+The error rate here is just 82/312 = 26.3%: not only is the top-20 predictor more economical, it also appears to be (slightly) better than using the full data set! 
+While this is not impossible in principle, this is actually not a good way of estimating the prediction rate: we use information that is based on the complete data, namely the list of 20 features, in each of the LOO-prediction rounds.
+This is referred to as ”information leak”, in the sense that some information is transferred from the full data to the hold-out data we use for cross-validation. 
+This will lead to optimistic error rates that underestimate true prediction errors on completely new validation data.
+
+*Correctly* The trick to side-step this is to re-run the feature selection as part of the cross-validation loop: for each training set, we re-run the DE analysis and select top 20 features, and use these specific top-20 features to predict on our test data. As a consequence, the actual composition of the list of 20 top features will vary with each training/test split, as will the prediction performance, so that we end up with a more realistic estimate of the prediction performance (as measured by the prediction error).
+
+Now we can modify the k-fold CV for this purpose:
+
+```{r}
+#assign to a new object, convert to data frame
+inData=as.data.frame(t(gex))
+#get folds
+sampleNum=nrow(inData)
+foldNum=5
+folds=makeFolds(foldNum,sampleNum)
+topk = 20
+pred=NULL
+for (i in 1:foldNum) {
+  cat("\n Processing fold",i)
+  fi=folds[[i]]
+  DEG_list=findDEG(t(inData[-fi,]),group[-fi])
+  toplist=DEG_list$Gene[1:topk]
+  trainx = inData[-fi,toplist]
+  traincl = group[-fi]
+  testx = inData[fi,toplist]
+  #do prediction, can use knn or any other prediction methods
+  res=knn(trainx, testx, traincl, k=7)
+  #keep results of the test set in each fold
+  names(res)=rownames(inData)[fi]
+  pred= c(pred,res)
+}
+#get the results in the right order
+pred=pred[match(rownames(inData),names(pred))]
+```
+
+Briefly, function makeFolds() is used to allocate samples into 10 folds which are saved into folds. Then, we set the desired number of top genes to be used, and start a loop that is repeated once for each fold. In each loop, the samples in the selected fold (fi=folds[[i]]) are used for the test set (testx) and the remaining samples are used for the train set (trainx). This means we run t-test in function findDEG() on the data without the selected fold, extract the desired number of top genes, and use knn to predict the class of the selected fold, which is stored for future evaluation. This is how the 10-fold CV predictions compare to the actual observations:
+
+```{r}
+table(pred, group)
+```
+We find that the error rate here is 88/312 = 28.2%, which is worse than the 26.3% we got when we used the fixed top-20 list to estimate the LOO-prediction error via knn.cv above.
+
+Another tuning parameter with the code above, it is easy to run the same analysis with the top ten, top 30 or top 1000 features. For a completely general cross-validated error rate, we would want to run a LOO-cross validation over reasonable combinations of both tuning parameters (the number of top features and the size of the neighborhood) simultaneously. We won’t be doing this here, but only refer to R packages caret and ipred for implementing complex cross-validation schemes. 
+
+```{r}
+# Differential expression analysis to rank features
+DEG_list <- findDEG(gex, group)  # Function from the lab
+
+```
+
+```{r}
+library(caret)
+
+# Custom feature selection function
+select_top_features <- function(data, top_n) {
+  toplist <- DEG_list$Gene[1:top_n]  # Top N genes
+  data <- data[, toplist, drop = FALSE]  # Subset data
+  return(data)
+}
+
+```
+```{r}
+# Define parameter grid
+param_grid <- expand.grid(k = seq(1, 19, by = 2), top_features = c(10, 30, 1000))
+
+```
+
+```{r}
+# Initialize result storage
+results <- data.frame()
+
+
+library(doParallel)
+cl <- makeCluster(detectCores() - 1)  # Use available cores
+registerDoParallel(cl)
+
+# Loop over grid
+for (i in 1:nrow(param_grid)) {
+  # Extract parameters
+  k <- param_grid$k[i]
+  top_n <- param_grid$top_features[i]
+  
+  # Subset data with selected features
+  gex_subset <- select_top_features(as.data.frame(t(gex)), top_n)
+  
+  # Train model with caret
+  train_control <- trainControl(method = "LOOCV")  # Leave-One-Out CV
+  model <- train(
+    x = gex_subset,
+    y = as.factor(group),
+    method = "knn",
+    tuneGrid = expand.grid(k = k),  # Fix k for this iteration
+    trControl = train_control
+  )
+  
+  # Store results
+  result <- data.frame(k = k, top_features = top_n, Accuracy = max(model$results$Accuracy))
+  results <- rbind(results, result)
+}
+
+stopCluster(cl)
+
+# View combined results
+print(results)
+
+```
+
+```{r}
+library(ggplot2)
+
+# Plot accuracy vs k and top_features
+ggplot(results, aes(x = k, y = Accuracy, color = as.factor(top_features))) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "Accuracy for Different k and Top Features",
+    x = "Number of Neighbors (k)",
+    y = "Accuracy",
+    color = "Top Features"
+  )
+
+```
+
+
