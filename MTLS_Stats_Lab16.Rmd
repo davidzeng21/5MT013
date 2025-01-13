@@ -1,0 +1,409 @@
+---
+title: "Lab 16: Survival Analysis"
+output: html_notebook
+---
+
+```{r}
+# Packages
+library(survival)
+library(ggplot2)
+library(rstpm2)
+library(haven)
+library(eha)
+library(skimr)
+library(biostat3)
+library(broom)
+library(pammtools)
+library(ggfortify)
+library(dplyr)
+```
+
+### L1
+
+Import the data into R. Since we will focus on the clinical data in this lab, you can also create a new data frame including only this subset (aml). Familiarise yourself with the data.
+
+```{r}
+# Load data
+# Need to adjust the path to match the location of data on your computer
+load(file = "BeatAML2_clean.Rdata")
+# Remove other data frames
+rm(drug_data, meta_data, meta_dataDictionary, rnaCounts, rnaLog2CPM, rnaNorm, geneMap)
+# We will only use clinical data in this lab, create new dataframe
+aml <- clinical_data
+```
+
+```{r}
+# Data cleaning for simplicity
+# Drop missing values in the variables we will work with
+library(dplyr)
+aml <- filter(aml, !is.na(ageAtDiagnosis))
+aml <- filter(aml, ageAtDiagnosis != 0)
+aml <- aml |> filter(vitalStatus != "Unknown")
+# same as:
+# aml <- filter(aml, vitalStatus != "Unknown")
+```
+
+```{r}
+head(aml)
+# some descriptives
+summary(aml)
+```
+
+```{r}
+# more descriptive summary
+library(skimr)
+skim(aml)
+```
+
+We are interested in overall survival for AML patients. The patient vital status at the date of most recent follow-up is given by variable vitalStatus and the number of days between diagnosis date and last followup date found when determining vital status is given by variable overallSurvival
+
+```{r}
+# outcome of interest
+table(aml$vitalStatus, exclude = NULL)
+prop.table(table(aml$vitalStatus))
+```
+
+```{r}
+# time to event
+summary(aml$overallSurvival)
+aml <- mutate(aml, overallSurvivalyears = overallSurvival / 365.25)
+summary(aml$overallSurvivalyears)
+```
+
+1.  What is the event and what is the time at risk? The event is death and the time at risk is the time from diagnosis to death or last follow-up.
+
+2.  What is the proportion of AML patients that die? Give descriptive for the overall survival time? The proportion of AML patients that die is 0.546. The median overall survival time is 0.8 years, with a range of 0.003 to 8.567 years.
+
+Create a variable representing the survival time object. Print the new object and compare with the survival time and the event indicator variables. Make sure that the survival time object has been defined properly.
+
+```{r}
+aml <- aml |>
+  mutate(s = Surv(time = overallSurvivalyears,
+                  event = (vitalStatus == "Dead")))
+aml |> select(overallSurvivalyears, vitalStatus, s) |> head()
+```
+
+### L2
+
+Estimate the Kaplan-Meier survival probability for the AML patients. To do so, we need the survival package that was already loaded in the previous question.
+
+```{r}
+library(survival)
+# Kaplan-Meier
+km <- survfit(s ~ 1, data = aml)
+# Print the estimate at each failure time
+summary(km)
+# Obtain a summary for the Kaplan-Meier estimate
+km
+# Survival estimates at specific time since diagnosis
+summary(km, times = c(0, 1, 5))
+```
+
+1.  Calculate the Kaplan-Meier survival probability estimates at the first 2 failure times by hand. Is this the same as the one estimated above? Yes, the estimates are the same.
+
+2.  What is the median survival and what is its interpretation? The median survival is 1.26 years. This means that 50% of the patients are expected to survive for at least 1.26 years after diagnosis.
+
+3.  What is the survival probability at 0, 1 and 5 years after diagnosis? The survival probability at 0, 1 and 5 years after diagnosis is 1, 0.54, and 0.35, respectively.
+
+L3 Plot the Kaplan-Meier estimate. The Kaplan-Meier survival estimate is a step function that changes at every distinct survival time, but does not change at censoring times.
+
+```{r}
+library(broom)
+library(pammtools)
+lab_km <- ggplot(tidy(km), aes(x = time, y = estimate)) +
+geom_stepribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.1) +
+geom_step() +
+theme_bw(base_size = 12) +
+coord_cartesian(ylim = c(0, 1)) +
+labs(x = "Time (years)", y = expression(S[KM](t)))
+lab_km
+```
+
+Why does the survival curve not reach zero? The survival curve does not reach zero because some patients are still alive at the end of the study period.
+
+### L4 Estimate the survival probability separately for males and females.
+
+```{r}
+# Transform sex variable to factor
+aml <- aml |>
+mutate(consensus_sex = factor(consensus_sex, levels = c("Female", "Male")))
+# Estimate Kaplan-Meier survival by sex
+km2 <- survfit(s ~ consensus_sex, data = aml)
+summary(km2)
+
+```
+
+Then plot the survival curves.
+
+```{r}
+lab_km2 <- ggplot(tidy(km2), aes(x = time, y = estimate)) +
+geom_stepribbon(aes(ymin = conf.low, ymax = conf.high, fill = strata),
+alpha = 0.1) +
+geom_step(aes(color = strata)) +
+scale_color_manual(values = c(1, 2)) +
+scale_fill_manual(values = c(1, 2)) +
+theme_bw(base_size = 12) +
+theme(legend.position = "top") +
+coord_cartesian(ylim = c(0, 1)) +
+labs(x = "Time (years)", y = expression(S[KM](t)), color = "", fill = "")
+lab_km2
+```
+
+1.  Who has a better survival, males or females? Female patients have a better survival.
+2.  Based on the plot, what is approximately the median survival for males and females? Confirm your answer by printing km2. The median survival for males is 0.8 years and the median survival for females is 2.5 years.
+
+```{r}
+km2
+```
+
+3.  Based on the Kaplan-Meier curves, what can you say about the hazard functions? How would you expect them to look like?
+
+The hazard function is the instantaneous risk of death at a given time. The hazard function is the slope of the survival curve. The hazard function is higher when the survival curve is steeper. The hazard function is lower when the survival curve is flatter. The hazard function of male patients is higher than that of female patients at the beginning.
+
+• Once you have answered on the question 3, plot the hazard functions by sex using the following code. Was your previous response correct?
+
+```{r}
+library(biostat3)
+library(muhaz)
+bh_bysex <- muhaz2(s ~ consensus_sex, data = aml)
+bh_bysex <- bind_rows(
+data.frame(time = bh_bysex$`consensus_sex=Female`$est.grid,
+h = bh_bysex$`consensus_sex=Female`$haz.est, consensus_sex = "Female"),
+data.frame(time = bh_bysex$`consensus_sex=Male`$est.grid,
+h = bh_bysex$`consensus_sex=Male`$haz.est, consensus_sex = "Male")
+) |>
+ggplot(aes(x = time, y = h, linetype = consensus_sex)) +
+geom_line() +
+theme_bw(base_size = 12) +
+theme(legend.position = "top") +
+labs(x = "Time (years)", y = "Hazard", linetype = "")
+bh_bysex
+```
+
+### L5 Perform a Log-rank test to check whether the survival curves by sex are statistically different.
+
+```{r}
+survdiff(s ~ consensus_sex, data = aml, rho = 0)
+```
+
+Are the survival probabilities by sex statistically different? Yes, the survival probabilities by sex are statistically different (p-value \< 0.05).
+
+The Log-rank test gives equal weight to all time points. As follow-up time increases there will be fewer individuals left event-free. The Wilcoxon method can also be applied and this gives more weight to events at early time points.
+
+```{r}
+survdiff(s ~ consensus_sex, data = aml, rho = 1)
+```
+
+Does the Wilcoxon test agree with the Log-rank test? Yes, the Wilcoxon test agrees with the Log-rank test (p-value \< 0.05).
+
+### L6
+
+Next we want to explore whether the survival differences by sex are due to differences in the age at diagnosis. This can be done by performing a stratified log-rank test. Since age is a continuous variable we need to turn it into a categorical variable first.
+
+```{r}
+summary(aml$ageAtDiagnosis)
+# create two categories for age at diagnosis: below or above 65 years old
+aml$ageAtDiagnosiscat<-cut(aml$ageAtDiagnosis, c(0,65,100))
+survdiff(s ~ consensus_sex + strata(ageAtDiagnosiscat), data = aml)
+```
+
+1.  Do differences exist even when we stratify by age at diagnosis? Yes, differences exist even when we stratify by age at diagnosis (p-value \< 0.05).
+
+2.  What are potential limitations of the the log-rank test? The log-rank test assumes that the hazard functions are proportional. The log-rank test is sensitive to the choice of time points. The log-rank test does not account for covariates.
+
+### L7 Fit a Cox proportional hazards model to investigate the effect of sex on survival of AML patients.
+
+```{r}
+cox <- coxph(s ~ consensus_sex, data = aml)
+summary(cox)
+```
+
+1.  Write down the model formulation. The Cox proportional hazards model is given by: h(t) = h0(t) \* exp(β) where h(t) is the hazard function at time t, h0(t) is the baseline hazard function at time t, and β is the coefficient for association regression. The model is log-linear in the hazard function.
+
+2.  What is the estimate for the hazard ratio of sex and what is the interpretation? The estimate for the hazard ratio of sex is 1.5309. This means that the mortality rate of male patients is 53.09% higher than female patients.
+
+### L8 Obtain the estimated survival curves for both values of sex, and compare the results with the
+
+Kaplan-Meier estimates.
+
+First, we obtain predictions of the survival function using the Cox model and the Kaplan-Meier estimator:
+
+```{r}
+nd <- data.frame(consensus_sex = c("Male", "Female"))
+cox.surv <- survfit(cox, newdata = nd)
+km.surv <- survfit(s ~ consensus_sex, data = aml)
+```
+
+Then, we use the tidy function from the broom package to extract the estimated survival as tidy datasets:
+
+```{r}
+cox.surv.data <- tidy(cox.surv)
+km.surv.data <- tidy(km.surv)
+```
+
+Finally, we plot the four distinct estimated survival curves:
+
+```{r}
+plotdata <- bind_rows(
+  cox.surv.data |>
+    mutate(time,
+      Survival = estimate.1,
+      Sex = nd$consensus_sex[1],
+      model = "Cox",
+      .keep = "none"
+    ),
+  cox.surv.data |>
+    mutate(time,
+      Survival = estimate.2,
+      Sex = nd$consensus_sex[2],
+      model = "Cox",
+      .keep = "none"
+    ),
+  km.surv.data |>
+    mutate(time,
+      Survival = estimate,
+      Sex = sub("consensus_sex=", "", strata),
+      model = "KM",
+      .keep = "none"
+    )
+)
+lab_kmcox <- ggplot(plotdata, aes(time, Survival, colour = Sex, linetype = model)) +
+  geom_step() +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "top") +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "Time", y = "Survival", linetype = "Model")
+lab_kmcox
+
+```
+
+1.  Is there a good agreement between the estimates obtained from the Cox model and the Kaplan- Meier? Yes, there is a good agreement between the estimates obtained from the Cox model and the Kaplan-Meier.
+
+2.  What are the different assumptions made between the two approaches? The Cox model assumes that the hazard ratio is constant over time. The Kaplan-Meier method does not make any assumptions about the hazard function.
+
+3.  **Cox Proportional Hazards Model**:
+
+    -   Assumes **proportional hazards**: The hazard ratios between groups are constant over time.
+
+    -   Provides survival estimates adjusted for covariates (e.g., other predictors like age).
+
+    -   Model-based approach that allows extrapolation beyond observed data.
+
+4.  **Kaplan-Meier Estimator**:
+
+    -   Makes no assumptions about the hazard function or proportionality.
+
+    -   A purely **non-parametric method**, relying on observed event times.
+
+    -   Provides unadjusted survival estimates for each group (e.g., Male and Female) without considering additional covariates.
+
+### L9 Now fit a Cox proportional hazards model to investigate the effect of sex on survival of AML
+
+patients while adjusting for age at diagnosis.
+
+```{r}
+cox2 <- coxph(s ~ consensus_sex + ageAtDiagnosis , data = aml)
+summary(cox2)
+```
+
+1.  Write down the model formulation.
+
+h(t∣consensus_sex,ageAtDiagnosis)=h0(t)exp(β1consensu_sex+β2ageAtDiagnosis)
+
+2.  What is the estimate for the hazard ratio of sex and what is the interpretation?
+HR for male is 1.422. That means that the hazard for male is 42.2% higher than females.
+
+
+3.  Is age at diagnosis statistical significant?
+Yes, age at diagnosis is statistically significant (p-value \< 0.05).
+
+
+### L10 
+Extend the previous model to include a time-dependent effect for sex.
+
+```{r}
+cox.tvc <-coxph(s ~ consensus_sex + tt(consensus_sex) + ageAtDiagnosis,
+data = aml, tt = function(x, t, ...) (x == "Male") * log(t))
+summary(cox.tvc)
+# Likelihood ratio test comparing the model with interaction to model
+# with no interaction
+library(lmtest)
+lrtest(cox.tvc,cox2)
+```
+
+
+1. Write down the model formulation.
+h(t∣consensu_sex,ageAtDiagnosis)=h0(t)exp(β1consensus_sex+β2ageAtDiagnosis+β3consensus_sex∗log(t))
+
+2. What is the estimate for the hazard ratio of sex and what is the interpretation?
+HR(t)=exp(β1+β3log(t))=exp(1.620+1.122log(t))
+Males have a 62% higher hazard compared to females at t=1 (when log(t)=0), adjusting for age.
+The hazard for males increases by 12.2% per unit increase in log(t), relative to females.
+
+3. Is the proportional hazards assumption reasonable for sex? What does the likelihood ratio
+test shows?
+The proportional hazards assumption is reasonable for sex in this dataset.
+The likelihood ratio test comparing the model with time-dependent effect to the model without time-dependent effect is not statistically significant (p-value > 0.05).
+
+### L11 
+Plot the time-varying HR for sex from the model fitted in L10.
+```{r}
+hr <- function(time) exp(coef(cox.tvc)[1] + coef(cox.tvc)[2] * log(time))
+nd <- data.frame(time = seq(0, max(aml$overallSurvivalyears), length.out = 100))
+nd$hr <- hr(nd$time)
+lab_hr <- ggplot(nd, aes(x = time, y = hr)) +
+geom_line() +
+theme_bw(base_size = 12) +
+labs(x = "Time", y = "HR")
+lab_hr
+```
+The HR is increasing with time (males have a higher mortality rate than females). Five years after
+diagnosis the HR is approximately 1.95 as we estimated in L10.
+
+### L12 
+Assess the proportional hazards assumption for the covariates included in the cox2 model that
+was fitted previously.
+```{r}
+# Test on Schoenfeld residuals
+cox2_sch <- cox.zph(cox2)
+cox2_sch
+# Plot the residuals for each covariate included in the model
+lab_res1 <- ggplot(data.frame(time = cox2_sch$x,
+schres = cox2_sch$y[, "consensus_sex"]), aes(x = time, y = schres)) +
+geom_point() +
+geom_smooth(method = "lm", formula = y ~ ns(x, df = 4, intercept = TRUE)) +
+theme_bw(base_size = 12) +
+labs(x = "Time", y = "Beta(t) for consensus_sex")
+lab_res1
+lab_res2 <- ggplot(data.frame(time = cox2_sch$x,
+schres = cox2_sch$y[, "ageAtDiagnosis"]), aes(x = time, y = schres)) +
+geom_point() +
+geom_smooth(method = "lm", formula = y ~ ns(x, df = 4, intercept = TRUE)) +
+theme_bw(base_size = 12) +
+labs(x = "Time", y = "Beta(t) for ageAtDiagnosis")
+lab_res2
+```
+
+1. What can you conclude for the PH assumption?
+The formal test for Schoenfeld residuals indicates that there is violation of the proportional
+hazards assumption for age at diagnosis and overall in the model. 
+This is also shown at the plot for the residuals of age at diagnosis where a decreasing trend is observed across follow-up (even though the plots are more difficult to interpret).
+
+
+
+2. If there are violations with the PH assumption, how can you relax the assumption?
+Violations to the PH assumption can be addressed by allowing for a time-dependent effect for age at diagnosis in the model. For example,
+
+```{r}
+cox.tvc2 <- coxph(s ~ consensus_sex + ageAtDiagnosis + tt(ageAtDiagnosis),
+data = aml, tt = function(x, t, ...) x * log(t))
+summary(cox.tvc2)
+```
+
+
+
+
+
+
+
+
